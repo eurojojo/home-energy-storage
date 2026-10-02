@@ -1,0 +1,297 @@
+blueprint:
+  name: "Home energy storage – hot water tank as a heat battery"
+  description: >
+    Uses the hot water tank of a heat pump (or an electric boiler) as storage by
+    changing its target temperature:
+
+    - **Boost** (e.g. 65 °C) on solar surplus after net metering ends, or when
+      power is very cheap (negative price, or among the cheapest slots of the day
+      and well below the median).
+
+    - **Comfort** (e.g. 55 °C) in the cheapest block of the day.
+
+    - **Eco** (e.g. 45 °C) in the most expensive block of the day: the tank may
+      cool down a bit, it is reheated later at a lower price.
+
+    - **Normal** (e.g. 50 °C) otherwise.
+
+
+    Keep the anti-legionella program of the device itself switched on, or see
+    the docs before you replace it.
+
+
+    **Requires** `custom_templates/home_energy_storage.jinja` and, for solar
+    boosts, a timer helper (the package creates `timer.hes_hot_water_boost`).
+    Part of the *home energy storage* set (level 3).
+    Documentation: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/docs/level-3-home-energy-storage.md
+  domain: automation
+  author: Joost Smits
+  source_url: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/blueprints/automation/eurojojo/hot_water.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    device:
+      name: Hot water
+      icon: mdi:water-boiler
+      input:
+        water_heater:
+          name: Water heater
+          selector:
+            entity:
+              filter:
+                - domain: water_heater
+        operation_mode:
+          name: Operation mode to set first (optional)
+          description: >
+            Some devices only accept a new temperature in a certain mode (e.g.
+            `performance`). Leave empty to never change the mode.
+          default: ""
+          selector:
+            text:
+        normal_temp:
+          name: Normal temperature
+          default: 50
+          selector:
+            number: { min: 30, max: 75, unit_of_measurement: "°C" }
+        comfort_temp:
+          name: Comfort temperature (cheapest block)
+          default: 55
+          selector:
+            number: { min: 30, max: 75, unit_of_measurement: "°C" }
+        comfort_hours:
+          name: Length of the cheapest block
+          default: 2
+          selector:
+            number: { min: 0.5, max: 8, step: 0.25, unit_of_measurement: h }
+        boost_temp:
+          name: Boost temperature (surplus or very cheap)
+          default: 65
+          selector:
+            number: { min: 30, max: 80, unit_of_measurement: "°C" }
+        eco_temp:
+          name: Eco temperature (most expensive block)
+          default: 45
+          selector:
+            number: { min: 30, max: 75, unit_of_measurement: "°C" }
+        eco_hours:
+          name: Length of the most expensive block
+          default: 3
+          selector:
+            number: { min: 0.5, max: 8, step: 0.25, unit_of_measurement: h }
+        eco_min_premium:
+          name: Use eco only if that block is at least this much above the median
+          default: 15
+          selector:
+            number: { min: 0, max: 200, unit_of_measurement: "%" }
+    surplus:
+      name: Solar surplus
+      icon: mdi:solar-power
+      input:
+        grid_power:
+          name: Grid power (W, + import / − export)
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: power
+        surplus_w:
+          name: Boost when the surplus is at least
+          description: Roughly what the heat pump uses while heating water.
+          default: 1000
+          selector:
+            number: { min: 100, max: 10000, step: 50, mode: box, unit_of_measurement: W }
+        surplus_minutes:
+          name: ... for at least
+          default: 10
+          selector:
+            number: { min: 1, max: 60, unit_of_measurement: min }
+        boost_timer:
+          name: Boost timer
+          description: Its duration is how long a solar boost lasts (e.g. 1 hour).
+          default: timer.hes_hot_water_boost
+          selector:
+            entity:
+              filter:
+                - domain: timer
+        battery_power:
+          name: Home battery power (W, + charging, optional)
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: power
+        priority:
+          name: Priority helper (optional)
+          description: >
+            `input_select.hes_priority` from the package. If the battery comes
+            after hot water, what the battery is charging counts as surplus too.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: input_select
+        ev_must_charge:
+          name: '"EV must charge" helper (optional)'
+          description: While on, solar surplus goes to the EV, not to the tank.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: input_boolean
+    prices:
+      name: Prices
+      icon: mdi:currency-eur
+      collapsed: true
+      input:
+        price_sensor:
+          name: Price sensor with a price list
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+        markup:
+          name: Markup per kWh
+          default: 0.145
+          selector:
+            number: { min: 0, max: 1, step: 0.001, mode: box, unit_of_measurement: "€/kWh" }
+        net_metering_until:
+          name: First day without net metering
+          default: "2027-01-01"
+          selector:
+            text:
+        very_cheap_pct:
+          name: Very cheap = among the cheapest
+          default: 10
+          selector:
+            number: { min: 1, max: 50, unit_of_measurement: "% of today's slots" }
+        very_cheap_factor:
+          name: ... and at most this share of the median
+          default: 75
+          selector:
+            number: { min: 10, max: 100, unit_of_measurement: "%" }
+
+mode: queued
+max: 5
+
+trigger_variables:
+  t_grid: !input grid_power
+  t_battery: !input battery_power
+  t_priority: !input priority
+  t_threshold: !input surplus_w
+
+triggers:
+  - trigger: template
+    id: surplus
+    value_template: >
+      {% set order = (states(t_priority).split('→') | map('trim') | list) if t_priority else [] %}
+      {% set battery_after = 'Battery' in order and 'Hot water' in order
+                             and order.index('Battery') > order.index('Hot water') %}
+      {% set extra = ([states(t_battery) | float(0), 0] | max) if (t_battery and battery_after) else 0 %}
+      {{ -(states(t_grid) | float(0)) + extra >= t_threshold }}
+    for:
+      minutes: !input surplus_minutes
+  - trigger: state
+    entity_id: !input boost_timer
+  - trigger: state
+    entity_id: !input price_sensor
+  - trigger: time_pattern
+    minutes: /5
+  - trigger: homeassistant
+    event: start
+
+variables:
+  water_heater: !input water_heater
+  operation_mode: !input operation_mode
+  normal_temp: !input normal_temp
+  comfort_temp: !input comfort_temp
+  comfort_hours: !input comfort_hours
+  boost_temp: !input boost_temp
+  eco_temp: !input eco_temp
+  eco_hours: !input eco_hours
+  eco_min_premium: !input eco_min_premium
+  boost_timer: !input boost_timer
+  battery_power: !input battery_power
+  priority: !input priority
+  ev_must_charge: !input ev_must_charge
+  price_sensor: !input price_sensor
+  markup: !input markup
+  net_metering_until: !input net_metering_until
+  very_cheap_pct: !input very_cheap_pct
+  very_cheap_factor: !input very_cheap_factor
+
+conditions:
+  - condition: template
+    value_template: "{{ states(water_heater) not in ['unavailable', 'unknown'] }}"
+
+actions:
+  - variables:
+      s: >
+        {% from 'home_energy_storage.jinja' import hes_signals %}
+        {{ hes_signals(price_sensor, markup, net_metering_until,
+                       block_hours=comfort_hours, expensive_hours=eco_hours,
+                       very_cheap_pct=very_cheap_pct, very_cheap_factor=very_cheap_factor / 100) | from_json }}
+      order: "{{ (states(priority).split('→') | map('trim') | list) if priority else [] }}"
+      ev_first: "{{ ev_must_charge != '' and is_state(ev_must_charge, 'on') }}"
+  - variables:
+      battery_first: >
+        {{ 'Battery' in order and 'Hot water' in order and order.index('Battery') < order.index('Hot water') }}
+      battery_filling: >
+        {{ battery_power != '' and states(battery_power) | float(0) > 200 }}
+  # A sustained solar surplus starts (or extends) the boost timer, but only
+  # after net metering: until then exporting is free storage.
+  - if:
+      - condition: template
+        value_template: "{{ trigger.id == 'surplus' and s.ok and not s.net_metering and not ev_first }}"
+    then:
+      - action: timer.start
+        target:
+          entity_id: "{{ boost_timer }}"
+  - variables:
+      boosting: "{{ is_state(boost_timer, 'active') }}"
+  - variables:
+      target: >-
+        {%- if boosting -%} {{ boost_temp }}
+        {%- elif not s.ok -%} {{ normal_temp }}
+        {%- elif s.very_cheap_now and not (battery_first and battery_filling) -%} {{ boost_temp }}
+        {%- elif s.in_priciest_block and s.priciest_block.premium >= 1 + eco_min_premium / 100 -%} {{ eco_temp }}
+        {%- elif s.in_cheapest_block -%} {{ comfort_temp }}
+        {%- else -%} {{ normal_temp }}
+        {%- endif -%}
+      reason: >-
+        {%- if boosting -%} solar surplus
+        {%- elif not s.ok -%} no prices
+        {%- elif s.very_cheap_now and not (battery_first and battery_filling) -%} very cheap ({{ s.price_now }})
+        {%- elif s.in_priciest_block and s.priciest_block.premium >= 1 + eco_min_premium / 100 -%} most expensive block
+        {%- elif s.in_cheapest_block -%} cheapest block
+        {%- else -%} normal
+        {%- endif -%}
+  - if:
+      - condition: template
+        value_template: >
+          {{ operation_mode != '' and state_attr(water_heater, 'operation_mode') != operation_mode
+             and operation_mode in (state_attr(water_heater, 'operation_list') or []) }}
+    then:
+      - action: water_heater.set_operation_mode
+        continue_on_error: true
+        target:
+          entity_id: "{{ water_heater }}"
+        data:
+          operation_mode: "{{ operation_mode }}"
+      - delay:
+          seconds: 20
+  - if:
+      - condition: template
+        value_template: "{{ state_attr(water_heater, 'temperature') | float(0) != target | float }}"
+    then:
+      - action: water_heater.set_temperature
+        continue_on_error: true
+        target:
+          entity_id: "{{ water_heater }}"
+        data:
+          temperature: "{{ target | float }}"
+      - action: logbook.log
+        data:
+          name: Hot water
+          entity_id: "{{ water_heater }}"
+          message: "{{ target }} °C ({{ reason }})"

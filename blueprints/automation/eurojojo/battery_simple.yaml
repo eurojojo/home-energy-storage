@@ -1,0 +1,233 @@
+blueprint:
+  name: "Home battery – simple price control (HomeWizard)"
+  description: >
+    Controls the HomeWizard Plug-In Battery with the charging strategies of
+    HomeWizard firmware (P1 Meter ≥ 6.04): `zero`, `zero_charge_only`,
+    `to_full` and `standby`.
+
+
+    **Most people do not need this.** HomeWizard's own *Smart charging*
+    (`predictive`, "Smart with dynamic tariffs" in the HomeWizard app) already
+    charges from the grid when power is cheap. Use this blueprint if you want to
+    see and tune the logic yourself.
+
+
+    Cheap = at most *lowest price + margin*; expensive = at least
+    *highest price − spread ÷ divisor*.
+
+    - Heavy load (e.g. EV charging): no discharging, solar may still charge.
+
+    - Cheap and arbitrage pays: charge from the grid (`to_full`).
+
+    - Expensive: net zero (`zero`, the battery supplies the house).
+
+    - In between: while net metering lasts `standby` (exporting is free storage),
+      after net metering `zero` (use your own solar power).
+
+
+    Documentation: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/docs/level-1-simple.md
+  domain: automation
+  author: Joost Smits
+  source_url: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/blueprints/automation/eurojojo/battery_simple.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    devices:
+      name: Devices and sensors
+      icon: mdi:home-battery
+      input:
+        battery_mode:
+          name: Battery group charging strategy
+          description: >
+            The select entity of your P1 Meter (disabled by default, enable it
+            first), e.g. `select.p1_meter_battery_group_charging_strategy`.
+          selector:
+            entity:
+              filter:
+                - domain: select
+                  integration: homewizard
+        soc_sensor:
+          name: Battery state of charge (%)
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: battery
+        grid_power:
+          name: Grid power (W)
+          description: P1 Meter power; positive = import, negative = export.
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: power
+    prices:
+      name: Prices
+      icon: mdi:currency-eur
+      input:
+        current_price:
+          name: Current electricity price
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+        lowest_price:
+          name: Lowest price today
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+        highest_price:
+          name: Highest price today
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+        markup:
+          name: Markup per kWh
+          description: >
+            What your supplier adds to the price sensor (energy tax, surcharge,
+            VAT). Only used to check whether charging from the grid pays.
+            Use 0 if your sensors already show all-in prices.
+          default: 0.145
+          selector:
+            number:
+              min: 0
+              max: 1
+              step: 0.001
+              mode: box
+              unit_of_measurement: "€/kWh"
+        net_metering_until:
+          name: First day without net metering
+          description: >
+            In the Netherlands net metering (salderen) ends on 2027-01-01.
+            Leave empty if you have no net metering.
+          default: "2027-01-01"
+          selector:
+            text:
+    tuning:
+      name: Tuning
+      icon: mdi:tune
+      collapsed: true
+      input:
+        low_margin:
+          name: Cheap margin above the lowest price
+          default: 0.03
+          selector:
+            number:
+              min: 0
+              max: 0.5
+              step: 0.005
+              mode: box
+              unit_of_measurement: "€/kWh"
+        high_divisor:
+          name: Expensive = highest price − spread ÷ this number
+          default: 2.5
+          selector:
+            number:
+              min: 1
+              max: 10
+              step: 0.1
+              mode: box
+        efficiency:
+          name: Round-trip efficiency
+          default: 75
+          selector:
+            number:
+              min: 50
+              max: 100
+              unit_of_measurement: "%"
+        min_profit:
+          name: Minimum profit per kWh to charge from the grid
+          default: 0.02
+          selector:
+            number:
+              min: 0
+              max: 0.5
+              step: 0.005
+              mode: box
+              unit_of_measurement: "€/kWh"
+        max_soc_grid:
+          name: Charge from the grid only below
+          default: 95
+          selector:
+            number:
+              min: 10
+              max: 100
+              unit_of_measurement: "%"
+        heavy_load:
+          name: Heavy load (no discharging above this import)
+          description: For example while the EV charges. Set very high to disable.
+          default: 3500
+          selector:
+            number:
+              min: 500
+              max: 50000
+              step: 100
+              mode: box
+              unit_of_measurement: W
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input current_price
+  - trigger: time_pattern
+    minutes: /1
+
+variables:
+  battery_mode: !input battery_mode
+  soc_sensor: !input soc_sensor
+  grid_power: !input grid_power
+  current_price: !input current_price
+  lowest_price: !input lowest_price
+  highest_price: !input highest_price
+  markup: !input markup
+  net_metering_until: !input net_metering_until
+  low_margin: !input low_margin
+  high_divisor: !input high_divisor
+  efficiency: !input efficiency
+  min_profit: !input min_profit
+  max_soc_grid: !input max_soc_grid
+  heavy_load: !input heavy_load
+
+conditions:
+  - condition: template
+    value_template: >
+      {{ [current_price, lowest_price, highest_price, soc_sensor] | map('states') | select('is_number') | list | count == 4 }}
+
+actions:
+  - variables:
+      price: "{{ states(current_price) | float }}"
+      low: "{{ states(lowest_price) | float }}"
+      high: "{{ states(highest_price) | float }}"
+      soc: "{{ states(soc_sensor) | float }}"
+      grid_w: "{{ states(grid_power) | float(0) }}"
+      net_metering: >
+        {{ net_metering_until | string | length > 0 and now().strftime('%Y-%m-%d') < net_metering_until | string }}
+      low_threshold: "{{ low + low_margin }}"
+      high_threshold: "{{ high - (high - low) / high_divisor }}"
+      # Profit per kWh charged at the lowest price and used at the highest price
+      arbitrage_pays: "{{ (high + markup) * efficiency / 100 - (low + markup) >= min_profit }}"
+  - variables:
+      target: >-
+        {%- if grid_w > heavy_load -%} zero_charge_only
+        {%- elif price <= low_threshold -%}
+          {%- if arbitrage_pays and soc < max_soc_grid -%} to_full
+          {%- elif net_metering -%} standby
+          {%- else -%} zero_charge_only
+          {%- endif -%}
+        {%- elif price >= high_threshold -%} zero
+        {%- elif net_metering -%} standby
+        {%- else -%} zero
+        {%- endif -%}
+  - if:
+      - condition: template
+        value_template: "{{ states(battery_mode) != target and target in state_attr(battery_mode, 'options') }}"
+    then:
+      - action: select.select_option
+        target:
+          entity_id: "{{ battery_mode }}"
+        data:
+          option: "{{ target }}"

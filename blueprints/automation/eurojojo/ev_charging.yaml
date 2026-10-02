@@ -1,0 +1,227 @@
+blueprint:
+  name: "Home energy storage – EV: charge on surplus and in the cheapest hours"
+  description: >
+    The EV is by far the biggest battery in most homes. This blueprint switches
+    a charger on and off:
+
+    - **EV must charge** (helper on): always charge.
+
+    - **Cheapest hours**: in the cheapest N hours of the 24 hours before your
+      "ready by" time.
+
+    - **Solar surplus**: start when enough power is exported for a few minutes,
+      stop when the house imports again for a few minutes.
+
+
+    It only acts while the "smart charging" helper is on, so you keep full
+    manual control when it is off.
+
+
+    **Test this during the day first.** Some chargers and cars do not like a
+    session being paused and resumed remotely (error on the car, or charging
+    that does not resume until the cable is reconnected). If that happens with
+    yours, don't use this blueprint.
+
+
+    **Requires** `custom_templates/home_energy_storage.jinja`.
+    Part of the *home energy storage* set (level 3).
+    Documentation: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/docs/level-3-home-energy-storage.md
+  domain: automation
+  author: Joost Smits
+  source_url: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/blueprints/automation/eurojojo/ev_charging.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    charger:
+      name: Charger
+      icon: mdi:ev-station
+      input:
+        charger_switch:
+          name: Charging on/off switch
+          selector:
+            entity:
+              filter:
+                - domain: switch
+        ev_connected:
+          name: EV connected (optional)
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: binary_sensor
+        smart_enabled:
+          name: Smart charging helper
+          description: The blueprint only acts while this is on.
+          default: input_boolean.hes_ev_smart_charging
+          selector:
+            entity:
+              filter:
+                - domain: input_boolean
+        ev_must_charge:
+          name: '"EV must charge" helper'
+          default: input_boolean.hes_ev_must_charge
+          selector:
+            entity:
+              filter:
+                - domain: input_boolean
+    surplus:
+      name: Solar surplus
+      icon: mdi:solar-power
+      input:
+        grid_power:
+          name: Grid power (W, + import / − export)
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: power
+        start_w:
+          name: Start when the surplus is at least
+          description: One phase at 6 A is about 1400 W, three phases about 4100 W.
+          default: 1500
+          selector:
+            number: { min: 500, max: 22000, step: 100, mode: box, unit_of_measurement: W }
+        start_minutes:
+          name: ... for at least
+          default: 5
+          selector:
+            number: { min: 1, max: 60, unit_of_measurement: min }
+        stop_w:
+          name: Stop when the import is at least
+          default: 500
+          selector:
+            number: { min: 0, max: 22000, step: 50, mode: box, unit_of_measurement: W }
+        stop_minutes:
+          name: ... for at least
+          default: 10
+          selector:
+            number: { min: 1, max: 60, unit_of_measurement: min }
+        battery_power:
+          name: Home battery power (W, + charging, optional)
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: power
+        priority:
+          name: Priority helper (optional)
+          description: If the battery comes after the EV, what it charges counts as surplus too.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: input_select
+    cheap:
+      name: Cheapest hours
+      icon: mdi:currency-eur
+      input:
+        cheap_hours:
+          name: Charge in the cheapest
+          description: 0 = don't charge in cheap hours.
+          default: 4
+          selector:
+            number: { min: 0, max: 24, step: 0.25, unit_of_measurement: h }
+        ready_by:
+          name: Ready by
+          default: "07:00:00"
+          selector:
+            time:
+        price_sensor:
+          name: Price sensor with a price list
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+
+mode: queued
+max: 5
+
+trigger_variables:
+  t_grid: !input grid_power
+  t_battery: !input battery_power
+  t_priority: !input priority
+  t_start_w: !input start_w
+  t_stop_w: !input stop_w
+
+triggers:
+  - trigger: template
+    id: surplus_start
+    value_template: >
+      {% set order = (states(t_priority).split('→') | map('trim') | list) if t_priority else [] %}
+      {% set battery_after = 'Battery' in order and 'EV' in order and order.index('Battery') > order.index('EV') %}
+      {% set extra = ([states(t_battery) | float(0), 0] | max) if (t_battery and battery_after) else 0 %}
+      {{ -(states(t_grid) | float(0)) + extra >= t_start_w }}
+    for:
+      minutes: !input start_minutes
+  - trigger: template
+    id: surplus_stop
+    value_template: "{{ states(t_grid) | float(0) >= t_stop_w }}"
+    for:
+      minutes: !input stop_minutes
+  - trigger: state
+    id: helper
+    entity_id:
+      - !input ev_must_charge
+      - !input smart_enabled
+  - trigger: time_pattern
+    minutes: /5
+
+variables:
+  charger_switch: !input charger_switch
+  ev_connected: !input ev_connected
+  smart_enabled: !input smart_enabled
+  ev_must_charge: !input ev_must_charge
+  grid_power: !input grid_power
+  stop_w: !input stop_w
+  cheap_hours: !input cheap_hours
+  ready_by: !input ready_by
+  price_sensor: !input price_sensor
+
+conditions:
+  - condition: template
+    value_template: >
+      {{ is_state(smart_enabled, 'on') and states(charger_switch) in ['on', 'off']
+         and (ev_connected == '' or is_state(ev_connected, 'on')) }}
+
+actions:
+  - variables:
+      must: "{{ is_state(ev_must_charge, 'on') }}"
+      # Fixed 24-hour window ending at the next "ready by" moment, so the chosen
+      # cheapest slots don't move while time passes.
+      in_cheap: >
+        {% from 'home_energy_storage.jinja' import hes_prices %}
+        {% set deadline = today_at(ready_by) if now() < today_at(ready_by) else today_at(ready_by) + timedelta(days=1) %}
+        {% set end_ts = as_timestamp(deadline) %}
+        {% set start_ts = end_ts - 86400 %}
+        {% set plist = hes_prices(price_sensor) | from_json %}
+        {% set slot = ((plist[1].ts - plist[0].ts) if plist | count > 1 else 3600) %}
+        {% set k = (cheap_hours * 3600 / slot) | round(0) | int %}
+        {% set win = plist | selectattr('ts', '>=', start_ts) | selectattr('ts', '<', end_ts) | sort(attribute='spot') | list %}
+        {% set chosen = win[:k] | map(attribute='ts') | list %}
+        {% set now_ts = as_timestamp(now()) %}
+        {{ k > 0 and chosen | select('le', now_ts) | select('gt', now_ts - slot) | list | count > 0 }}
+      # Clearly charging from the grid (not a passing cloud): e.g. after the
+      # cheapest hours ended or "EV must charge" was switched off.
+      importing_a_lot: "{{ states(grid_power) | float(0) >= stop_w + 1000 }}"
+  - variables:
+      target: >-
+        {%- if must or in_cheap -%} on
+        {%- elif trigger.id == 'surplus_start' -%} on
+        {%- elif trigger.id == 'surplus_stop' -%} off
+        {%- elif is_state(charger_switch, 'on') and importing_a_lot -%} off
+        {%- else -%} keep
+        {%- endif -%}
+  - if:
+      - condition: template
+        value_template: "{{ target in ['on', 'off'] and not is_state(charger_switch, target) }}"
+    then:
+      - action: "switch.turn_{{ target }}"
+        target:
+          entity_id: "{{ charger_switch }}"
+      - action: logbook.log
+        data:
+          name: EV charging
+          entity_id: "{{ charger_switch }}"
+          message: >
+            {{ target }} ({{ 'EV must charge' if must else ('cheapest hours' if in_cheap else 'solar surplus') }})

@@ -1,0 +1,296 @@
+blueprint:
+  name: "Home battery – advanced price control (HomeWizard)"
+  description: >
+    Controls the HomeWizard Plug-In Battery with the full price curve
+    (15-minute or hourly prices), the state of charge and the value of your
+    own solar power after net metering ends.
+
+
+    Each run it asks four questions, in this order:
+
+    1. Is a big flexible load running (EV, heat pump)? → don't discharge into it
+       (`zero_charge_only`).
+
+    2. Is now one of the cheapest slots needed to fill the battery, and does
+       charging from the grid still pay after round-trip losses? → `to_full`.
+
+    3. Is now one of the most expensive slots for the energy that is in the
+       battery? → `zero` (supply the house).
+
+    4. Does storing solar surplus pay (feed-in value ÷ efficiency below the
+       later price)? → `zero_charge_only`, otherwise `standby`.
+
+
+    **Requires** `custom_templates/home_energy_storage.jinja` from the
+    repository. Try HomeWizard's own *Smart charging* (`predictive`) first.
+
+
+    Documentation: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/docs/level-2-advanced.md
+  domain: automation
+  author: Joost Smits
+  source_url: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/blueprints/automation/eurojojo/battery_advanced.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    devices:
+      name: Devices and sensors
+      icon: mdi:home-battery
+      input:
+        battery_mode:
+          name: Battery group charging strategy
+          description: The select entity of your P1 Meter (disabled by default, enable it first).
+          selector:
+            entity:
+              filter:
+                - domain: select
+                  integration: homewizard
+        soc_sensor:
+          name: Battery state of charge (%)
+          description: With more than one battery, use the average.
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: battery
+        grid_power:
+          name: Grid power (W)
+          description: P1 Meter power; positive = import, negative = export.
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: power
+        flexible_loads:
+          name: Big flexible loads (optional)
+          description: >
+            Binary sensors that are on while the EV charges or the heat pump
+            runs. The battery then does not discharge into them.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: binary_sensor
+        heavy_load:
+          name: Heavy load (W)
+          description: No discharging while the import is above this. Set very high to disable.
+          default: 3500
+          selector:
+            number:
+              min: 500
+              max: 50000
+              step: 100
+              mode: box
+              unit_of_measurement: W
+    battery:
+      name: Battery
+      icon: mdi:battery-charging-80
+      input:
+        capacity:
+          name: Usable capacity (all batteries)
+          default: 2.7
+          selector:
+            number:
+              min: 0.5
+              max: 100
+              step: 0.1
+              mode: box
+              unit_of_measurement: kWh
+        power:
+          name: Maximum charge/discharge power (all batteries)
+          default: 800
+          selector:
+            number:
+              min: 100
+              max: 20000
+              step: 50
+              mode: box
+              unit_of_measurement: W
+        evening_load:
+          name: Typical household load in expensive hours
+          description: Used to estimate how many slots the battery can cover.
+          default: 450
+          selector:
+            number:
+              min: 50
+              max: 5000
+              step: 50
+              mode: box
+              unit_of_measurement: W
+        efficiency:
+          name: Round-trip efficiency
+          default: 75
+          selector:
+            number:
+              min: 50
+              max: 100
+              unit_of_measurement: "%"
+        min_soc:
+          name: Minimum state of charge
+          default: 10
+          selector:
+            number:
+              min: 0
+              max: 50
+              unit_of_measurement: "%"
+        max_soc_grid:
+          name: Charge from the grid up to
+          default: 95
+          selector:
+            number:
+              min: 10
+              max: 100
+              unit_of_measurement: "%"
+        min_profit:
+          name: Minimum profit per kWh
+          default: 0.02
+          selector:
+            number:
+              min: 0
+              max: 0.5
+              step: 0.005
+              mode: box
+              unit_of_measurement: "€/kWh"
+    prices:
+      name: Prices
+      icon: mdi:currency-eur
+      input:
+        price_sensor:
+          name: Price sensor with a price list
+          description: >
+            ENTSO-e (average price sensor), Nord Pool (HACS) or an adapter
+            sensor, see docs/price-sources.md.
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+        markup:
+          name: Markup per kWh
+          description: >
+            Added to the sensor price to get your all-in price (energy tax,
+            supplier surcharge, VAT). 0 if the sensor is already all-in.
+          default: 0.145
+          selector:
+            number:
+              min: 0
+              max: 1
+              step: 0.001
+              mode: box
+              unit_of_measurement: "€/kWh"
+        net_metering_until:
+          name: First day without net metering
+          description: Netherlands 2027-01-01. Empty if you have no net metering.
+          default: "2027-01-01"
+          selector:
+            text:
+        feed_in_factor:
+          name: Feed-in value after net metering = sensor price ×
+          description: >
+            Dynamic contract: often 1 (or 0.826 to remove 21 % VAT if your
+            sensor includes VAT). Fixed contract: see the docs.
+          default: 1.0
+          selector:
+            number:
+              min: 0
+              max: 1.5
+              step: 0.001
+              mode: box
+        feed_in_fee:
+          name: Feed-in fee per kWh after net metering
+          default: 0.0
+          selector:
+            number:
+              min: 0
+              max: 0.5
+              step: 0.001
+              mode: box
+              unit_of_measurement: "€/kWh"
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input price_sensor
+  - trigger: time_pattern
+    minutes: /1
+
+variables:
+  battery_mode: !input battery_mode
+  soc_sensor: !input soc_sensor
+  grid_power: !input grid_power
+  flexible_loads: !input flexible_loads
+  heavy_load: !input heavy_load
+  capacity: !input capacity
+  power: !input power
+  evening_load: !input evening_load
+  efficiency: !input efficiency
+  min_soc: !input min_soc
+  max_soc_grid: !input max_soc_grid
+  min_profit: !input min_profit
+  price_sensor: !input price_sensor
+  markup: !input markup
+  net_metering_until: !input net_metering_until
+  feed_in_factor: !input feed_in_factor
+  feed_in_fee: !input feed_in_fee
+
+conditions:
+  - condition: template
+    value_template: "{{ states(soc_sensor) | is_number }}"
+
+actions:
+  - variables:
+      s: >
+        {% from 'home_energy_storage.jinja' import hes_signals %}
+        {{ hes_signals(price_sensor, markup, net_metering_until, feed_in_factor, feed_in_fee) | from_json }}
+  - condition: template
+    value_template: "{{ s.ok }}"
+  - variables:
+      soc: "{{ states(soc_sensor) | float }}"
+      grid_w: "{{ states(grid_power) | float(0) }}"
+      eff: "{{ efficiency / 100 }}"
+      slot_h: "{{ s.slot_minutes / 60 }}"
+      rem: "{{ s.remaining_asc }}"
+      # Slots needed to fill the battery from the grid, and to empty it into the house
+      n_charge: "{{ (([max_soc_grid - soc, 0] | max) / 100 * capacity / (power / 1000 * slot_h)) | round(0, 'ceil') | int }}"
+      n_discharge: "{{ (([soc - min_soc, 0] | max) / 100 * capacity / ([power, evening_load] | min / 1000 * slot_h)) | round(0, 'ceil') | int }}"
+      n_full: "{{ ((100 - min_soc) / 100 * capacity / ([power, evening_load] | min / 1000 * slot_h)) | round(0, 'ceil') | int }}"
+  - variables:
+      # What a stored kWh is worth later: average of the most expensive slots it can cover
+      later_value: >
+        {% set k = [[n_full, 1] | max, rem | count] | min %}
+        {{ (rem[-k:] | sum / k) if k > 0 else 0 }}
+      charge_limit: "{{ rem[n_charge - 1] if 0 < n_charge <= rem | count else -999 }}"
+      discharge_limit: "{{ rem[-n_discharge] if 0 < n_discharge <= rem | count else (rem[0] if n_discharge > 0 and rem else 999) }}"
+      flex_running: "{{ flexible_loads | select('is_state', 'on') | list | count > 0 or grid_w > heavy_load }}"
+  - variables:
+      grid_charge: >
+        {{ n_charge > 0 and s.price_now <= charge_limit and grid_w > -50
+           and s.price_now / eff + min_profit <= later_value }}
+      discharge: "{{ soc > min_soc and (s.price_now >= discharge_limit or s.price_now >= s.outlier) }}"
+      store_solar: "{{ s.feed_in_now / eff + min_profit <= later_value }}"
+  - variables:
+      target: >-
+        {%- if flex_running -%} zero_charge_only
+        {%- elif grid_charge -%} to_full
+        {%- elif discharge -%} zero
+        {%- elif store_solar -%} zero_charge_only
+        {%- else -%} standby
+        {%- endif -%}
+  - if:
+      - condition: template
+        value_template: "{{ states(battery_mode) != target and target in state_attr(battery_mode, 'options') }}"
+    then:
+      - action: select.select_option
+        target:
+          entity_id: "{{ battery_mode }}"
+        data:
+          option: "{{ target }}"
+      - action: logbook.log
+        data:
+          name: Home battery
+          entity_id: "{{ battery_mode }}"
+          message: >
+            {{ target }}: price {{ s.price_now }}, soc {{ soc | round(0) }} %,
+            grid charge ≤ {{ charge_limit }}, discharge ≥ {{ discharge_limit }},
+            later value {{ later_value | round(3) }}, feed-in {{ s.feed_in_now }}

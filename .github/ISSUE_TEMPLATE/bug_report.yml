@@ -1,0 +1,47 @@
+name: Bug report
+description: A blueprint or template does not do what the documentation says
+labels: [bug]
+body:
+  - type: dropdown
+    id: blueprint
+    attributes:
+      label: Which part?
+      options:
+        - Level 1 – battery simple
+        - Level 2 – battery advanced
+        - Level 3 – battery guard
+        - Level 3 – hot water
+        - Level 3 – heating
+        - Level 3 – EV charging
+        - Level 3 – curtail export
+        - Price model (home_energy_storage.jinja)
+        - Package / helpers
+        - Documentation
+    validations:
+      required: true
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      placeholder: "2026.10.0"
+    validations:
+      required: true
+  - type: input
+    id: price_source
+    attributes:
+      label: Price source
+      placeholder: ENTSO-e / Nord Pool (HACS) / Nord Pool (core) / Tibber / EnergyZero / other
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: trace
+    attributes:
+      label: Automation trace or signals
+      description: >
+        Settings → Automations → your automation → ⋮ → Traces → download, or the
+        output of the template test in docs/installation.md. Remove anything private.
+      render: text

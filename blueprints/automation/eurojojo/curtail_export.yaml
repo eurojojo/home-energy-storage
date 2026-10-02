@@ -1,0 +1,132 @@
+blueprint:
+  name: "Home energy storage – stop exporting when it costs money"
+  description: >
+    When exporting costs money (negative feed-in value), limit or switch off
+    the solar inverter, and restore it when exporting pays again. Run this
+    after the storage automations: first store what you can, then curtail
+    what is left.
+
+
+    The feed-in value is the all-in price while net metering lasts and
+    *sensor price × factor − fee* afterwards, the same rule as in the other
+    blueprints.
+
+
+    Works with an on/off switch or with a power-limit number entity (e.g. a
+    Growatt or SolarEdge export limit).
+
+
+    **Requires** `custom_templates/home_energy_storage.jinja`.
+    Part of the *home energy storage* set (level 3).
+    Documentation: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/docs/level-3-home-energy-storage.md
+  domain: automation
+  author: Joost Smits
+  source_url: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/blueprints/automation/eurojojo/curtail_export.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    inverter:
+      name: Inverter switch or power-limit number
+      selector:
+        entity:
+          filter:
+            - domain: switch
+            - domain: number
+    limited_value:
+      name: Number value while curtailed
+      description: Only for a number entity, e.g. 0 (%).
+      default: 0
+      selector:
+        number: { min: 0, max: 100000, mode: box }
+    normal_value:
+      name: Number value normally
+      description: Only for a number entity, e.g. 100 (%).
+      default: 100
+      selector:
+        number: { min: 0, max: 100000, mode: box }
+    threshold:
+      name: Curtail when the feed-in value is below
+      default: 0
+      selector:
+        number: { min: -1, max: 1, step: 0.001, mode: box, unit_of_measurement: "€/kWh" }
+    price_sensor:
+      name: Price sensor with a price list
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+    markup:
+      name: Markup per kWh
+      default: 0.145
+      selector:
+        number: { min: 0, max: 1, step: 0.001, mode: box, unit_of_measurement: "€/kWh" }
+    net_metering_until:
+      name: First day without net metering
+      default: "2027-01-01"
+      selector:
+        text:
+    feed_in_factor:
+      name: Feed-in value after net metering = sensor price ×
+      default: 1.0
+      selector:
+        number: { min: 0, max: 1.5, step: 0.001, mode: box }
+    feed_in_fee:
+      name: Feed-in fee per kWh after net metering
+      default: 0.0
+      selector:
+        number: { min: 0, max: 0.5, step: 0.001, mode: box, unit_of_measurement: "€/kWh" }
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input price_sensor
+  - trigger: time_pattern
+    minutes: /1
+  - trigger: homeassistant
+    event: start
+
+variables:
+  inverter: !input inverter
+  limited_value: !input limited_value
+  normal_value: !input normal_value
+  threshold: !input threshold
+  price_sensor: !input price_sensor
+  markup: !input markup
+  net_metering_until: !input net_metering_until
+  feed_in_factor: !input feed_in_factor
+  feed_in_fee: !input feed_in_fee
+
+conditions:
+  - condition: template
+    value_template: "{{ states(inverter) not in ['unavailable', 'unknown'] }}"
+
+actions:
+  - variables:
+      s: >
+        {% from 'home_energy_storage.jinja' import hes_signals %}
+        {{ hes_signals(price_sensor, markup, net_metering_until, feed_in_factor, feed_in_fee) | from_json }}
+  - condition: template
+    value_template: "{{ s.ok }}"
+  - variables:
+      curtail: "{{ s.feed_in_now < threshold }}"
+      is_switch: "{{ inverter.startswith('switch.') }}"
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ is_switch and is_state(inverter, 'on' if curtail else 'off') }}"
+        sequence:
+          - action: "switch.turn_{{ 'off' if curtail else 'on' }}"
+            target:
+              entity_id: "{{ inverter }}"
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ not is_switch and states(inverter) | float(-1) != (limited_value if curtail else normal_value) | float }}
+        sequence:
+          - action: number.set_value
+            target:
+              entity_id: "{{ inverter }}"
+            data:
+              value: "{{ limited_value if curtail else normal_value }}"

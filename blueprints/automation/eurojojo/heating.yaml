@@ -1,0 +1,230 @@
+blueprint:
+  name: "Home energy storage – house as a heat battery (pre-heating)"
+  description: >
+    Uses the house itself (floors, walls, furniture) as storage: a little
+    warmer just before the most expensive hours of the day, a little cooler
+    during them. With a heat pump this moves heating to cheaper hours with
+    hardly any comfort loss.
+
+
+    - **Pre-heat**: target + offset during the hours before the most expensive block,
+      if that is clearly cheaper.
+
+    - **Save**: target − offset during the most expensive block.
+
+    - Afterwards the original target is restored. If you (or the thermostat's
+      own schedule) change the target in between, the automation backs off
+      until the next block.
+
+
+    Only in the heating season (outdoor temperature below a limit) and only in
+    the HVAC modes you choose.
+
+
+    **Requires** `custom_templates/home_energy_storage.jinja` and a number
+    helper to remember the original target (the package creates
+    `input_number.hes_heating_base`). Part of the *home energy storage* set (level 3).
+    Documentation: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/docs/level-3-home-energy-storage.md
+  domain: automation
+  author: Joost Smits
+  source_url: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/blueprints/automation/eurojojo/heating.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    climate:
+      name: Thermostat
+      selector:
+        entity:
+          filter:
+            - domain: climate
+    hvac_modes:
+      name: Only in these HVAC modes
+      description: Typically `heat`; some thermostats use `auto` for their own schedule.
+      default: [heat, auto]
+      selector:
+        select:
+          multiple: true
+          custom_value: true
+          options: [heat, auto, heat_cool]
+    base_helper:
+      name: Helper to remember the original target
+      default: input_number.hes_heating_base
+      selector:
+        entity:
+          filter:
+            - domain: input_number
+    offset:
+      name: Offset
+      default: 0.5
+      selector:
+        number: { min: 0.1, max: 3, step: 0.1, unit_of_measurement: "°C" }
+    expensive_hours:
+      name: Length of the most expensive block
+      default: 3
+      selector:
+        number: { min: 0.5, max: 8, step: 0.25, unit_of_measurement: h }
+    min_premium:
+      name: Only if that block is at least this much above the median
+      default: 15
+      selector:
+        number: { min: 0, max: 200, unit_of_measurement: "%" }
+    preheat_hours:
+      name: Pre-heat during the hours before the block
+      default: 2
+      selector:
+        number: { min: 0.5, max: 6, step: 0.25, unit_of_measurement: h }
+    preheat_max_share:
+      name: Pre-heat only if those hours cost at most this share of the block price
+      default: 85
+      selector:
+        number: { min: 10, max: 100, unit_of_measurement: "%" }
+    outdoor_temp:
+      name: Outdoor temperature (optional)
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: temperature
+    outdoor_max:
+      name: Heating season = outdoor temperature below
+      default: 14
+      selector:
+        number: { min: -10, max: 25, step: 0.5, unit_of_measurement: "°C" }
+    price_sensor:
+      name: Price sensor with a price list
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+    markup:
+      name: Markup per kWh
+      default: 0.145
+      selector:
+        number: { min: 0, max: 1, step: 0.001, mode: box, unit_of_measurement: "€/kWh" }
+
+mode: queued
+max: 3
+
+triggers:
+  - trigger: time_pattern
+    minutes: /5
+  - trigger: state
+    entity_id: !input price_sensor
+  - trigger: state
+    entity_id: !input climate
+    attribute: temperature
+
+variables:
+  climate: !input climate
+  hvac_modes: !input hvac_modes
+  base_helper: !input base_helper
+  offset: !input offset
+  expensive_hours: !input expensive_hours
+  min_premium: !input min_premium
+  preheat_hours: !input preheat_hours
+  preheat_max_share: !input preheat_max_share
+  outdoor_temp: !input outdoor_temp
+  outdoor_max: !input outdoor_max
+  price_sensor: !input price_sensor
+  markup: !input markup
+
+conditions:
+  - condition: template
+    value_template: "{{ state_attr(climate, 'temperature') is number }}"
+
+actions:
+  - variables:
+      s: >
+        {% from 'home_energy_storage.jinja' import hes_signals %}
+        {{ hes_signals(price_sensor, markup, expensive_hours=expensive_hours) | from_json }}
+  - variables:
+      # Average all-in price of the pre-heat window just before the most expensive block
+      preheat_avg: >
+        {% from 'home_energy_storage.jinja' import hes_prices %}
+        {% if s.ok and s.priciest_block %}
+          {% set start = s.priciest_block.start - preheat_hours * 3600 %}
+          {% set win = hes_prices(price_sensor) | from_json | selectattr('ts', '>=', start)
+                       | selectattr('ts', '<', s.priciest_block.start) | map(attribute='spot') | list %}
+          {{ ((win | sum / win | count) + markup) if win else none }}
+        {% else %}{{ none }}{% endif %}
+      now_ts: "{{ as_timestamp(now()) }}"
+      outdoor: "{{ states(outdoor_temp) | float(none) if outdoor_temp else none }}"
+      current: "{{ state_attr(climate, 'temperature') | float }}"
+      base: "{{ states(base_helper) | float(-1) }}"
+  - variables:
+      allowed: >
+        {{ states(climate) in hvac_modes and (outdoor is none or outdoor < outdoor_max) }}
+      block_ok: >
+        {{ s.ok and s.priciest_block is not none and s.priciest_block.premium >= 1 + min_premium / 100 }}
+  - variables:
+      phase: >-
+        {%- if not allowed or not block_ok -%} normal
+        {%- elif s.in_priciest_block -%} save
+        {%- elif s.priciest_block.start - preheat_hours * 3600 <= now_ts < s.priciest_block.start
+               and preheat_avg is not none and preheat_avg <= s.priciest_block.avg * preheat_max_share / 100 -%} preheat
+        {%- else -%} normal
+        {%- endif -%}
+  - variables:
+      wanted: "{{ (base + offset) if phase == 'preheat' else ((base - offset) if phase == 'save' else base) }}"
+  - choose:
+      # Start of a pre-heat or save phase: remember the original target
+      - conditions:
+          - condition: template
+            value_template: "{{ phase != 'normal' and base == -1 }}"
+        sequence:
+          - action: input_number.set_value
+            target:
+              entity_id: "{{ base_helper }}"
+            data:
+              value: "{{ current }}"
+          - action: climate.set_temperature
+            target:
+              entity_id: "{{ climate }}"
+            data:
+              temperature: "{{ current + (offset if phase == 'preheat' else -offset) }}"
+      # Phase changes from pre-heat to save (or the other way round)
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ phase != 'normal' and base > 0
+                 and ((current - (base + offset)) | abs < 0.05 or (current - (base - offset)) | abs < 0.05)
+                 and (current - wanted) | abs >= 0.05 }}
+        sequence:
+          - action: climate.set_temperature
+            target:
+              entity_id: "{{ climate }}"
+            data:
+              temperature: "{{ wanted }}"
+      # Someone else changed the target during a phase: back off until the next phase
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ phase != 'normal' and base > 0
+                 and (current - (base + offset)) | abs >= 0.05 and (current - (base - offset)) | abs >= 0.05 }}
+        sequence:
+          - action: input_number.set_value
+            target:
+              entity_id: "{{ base_helper }}"
+            data:
+              value: 0
+      # End of the phases: restore the original target if it is still ours
+      - conditions:
+          - condition: template
+            value_template: "{{ phase == 'normal' and base != -1 }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: >
+                  {{ base > 0 and ((current - (base + offset)) | abs < 0.05 or (current - (base - offset)) | abs < 0.05) }}
+            then:
+              - action: climate.set_temperature
+                target:
+                  entity_id: "{{ climate }}"
+                data:
+                  temperature: "{{ base }}"
+          - action: input_number.set_value
+            target:
+              entity_id: "{{ base_helper }}"
+            data:
+              value: -1

@@ -1,197 +1,109 @@
-# HomeWizard Dynamic Battery Control for Home Assistant  
-**Version: 0.8, 29 November 2025**  
+# Home Energy Storage for Home Assistant
+
+**Store your own solar power — and cheap grid power — in the devices you already have: the hot water tank, the house itself, the EV and a (plug-in) home battery.**
+
+[![Release](https://img.shields.io/github/v/release/eurojojo/homewizard-dynamic-battery)](https://github.com/eurojojo/homewizard-dynamic-battery/releases)
+[![Lint](https://github.com/eurojojo/homewizard-dynamic-battery/actions/workflows/lint.yaml/badge.svg)](https://github.com/eurojojo/homewizard-dynamic-battery/actions/workflows/lint.yaml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.10%2B-41BDF5?logo=home-assistant)](https://www.home-assistant.io/)
 
-A complete, modular automation system that turns the [**HomeWizard Plug-In Battery**](https://www.homewizard.com/) into a *smart, price-aware, PV-aware* device — even though HomeWizard does **not** yet support “charge-only” or “discharge-only” modes.
-
-This project contains two automation strategies (simple & advanced), full documentation, and examples showing how these automations keep your power usage flat while exploiting dynamic electricity prices.
-
----
-
-# 🌍 Why this project exists
-
-HomeWizard currently exposes only **three modes** for the Plug-In Battery:
-
-- **zero** — charge or discharge to keep net usage at 0 W  
-- **to_full** — charge to 100%  
-- **standby** — do nothing (not charge, nor discharge)  
-
-There is *no mode* for:
-
-- **charge only on solar power and discharge later**  
-
-This makes automation **necessary** if you want to:
-
-- charge the battery when power is cheap  
-- discharge when prices are high  
-- prefer grid charging when there is no sun  
-- avoid draining the battery during large appliance loads, especially during cheap hours  
-- avoid overloading during EV charging  
-- keep behaviour stable when prices fluctuate  
-
-This repository provides a solution to that missing functionality, fully configurable.
+🇳🇱 [Nederlandse versie](README.nl.md)
 
 ---
 
-# 📸 Examples
+## Why: net metering ends
 
-### 1. Flattened consumption curve (HomeWizard app example)
+In the Netherlands net metering (*salderen*) ends on **1 January 2027**. Until then the grid is a free battery: every kWh you export is subtracted from a kWh you import. After that date an exported kWh earns only a feed-in compensation (on a dynamic contract roughly the bare market price, sometimes negative, often minus a feed-in fee), while an imported kWh still costs the full price including energy tax.
 
-*The image shows how, **end November**, the Plug-In Battery kept household usage almost flat by buying electricity cheaply from the grid, while the EV charged overnight and the dishwasher  was running, without drawing on the battery. Later in the morning the charged battery stepped in as prices rose, briefly topping up when the sun came out and, just as in summer, was then able to offset the higher consumption in the evening.*
+The gap is typically **€ 0.15–0.30 per kWh**. Every kWh of your own solar power that you *use* instead of export is worth that gap. The same goes for grid power you buy in the cheap hours instead of the expensive ones.
 
-![Flattened usage curve](docs/img/flattened-curve.png)
+You probably already own a lot of storage:
 
-### 2. Daily electricity prices curve
-*Prices of that same day. It shows a daytime mini-peak, a midday dip, and a strong evening price spike.*
+| Store | Typical size | Losses | Good for |
+|---|---|---|---|
+| **EV** | 40–80 kWh | ~10 % | the biggest one by far, when it is at home |
+| **Hot water tank** (heat pump or electric) | 1–2 kWh of electricity per boost (3–6 kWh of heat) | small; a heat pump also needs less power at a lower tank temperature | every day, all year |
+| **The house itself** (heat pump) | a few kWh of heat per °C | a little extra heat loss | heating season |
+| **Home battery** (HomeWizard Plug-In) | 2.7 kWh each, several can be combined | ~25 % round trip | evening and night |
 
-<img src="docs/img/price-curve.png" width="400" />
+This project shows how to use them with Home Assistant, step by step.
 
 ---
 
-# 📦 Repository Structure
+## Choose your level
+
+### 0. Just a HomeWizard battery? Use HomeWizard's own Smart charging
+
+Recent HomeWizard firmware (P1 Meter ≥ 6.04 or kWh Meter ≥ 5.02) has **Smart charging** (`predictive`). It predicts your consumption, solar production and the prices, and charges and discharges at the right moments. Choose *Smart with dynamic tariffs* in the HomeWizard Energy app if you have a dynamic contract, and it will also charge from the grid when power is cheap. You don't need solar panels for that.
+
+👉 **For most people this is the best option for the battery alone.** No Home Assistant automation needed.
+[HomeWizard Plug-In Battery](https://www.homewizard.com/plug-in-battery/) · [How Smart charging decides](https://helpdesk.homewizard.com/en/articles/14209959-how-does-the-battery-determine-when-to-charge-and-discharge)
+
+The levels below are for people who want to see and tune the logic themselves, or who want to combine the battery with the other stores.
+
+### 1. Simple: one blueprint for the battery
+
+Cheap and expensive hours from today's lowest and highest price, a profitability check, and the new firmware modes (`zero`, `zero_charge_only`, `to_full`, `standby`). Easy to read and adjust. → [docs/level-1-simple.md](docs/level-1-simple.md)
+
+[![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Feurojojo%2Fhomewizard-dynamic-battery%2Fblob%2Fmaster%2Fblueprints%2Fautomation%2Feurojojo%2Fbattery_simple.yaml)
+
+### 2. Advanced: the whole price curve
+
+Uses all 15-minute (or hourly) prices of today and tomorrow, the state of charge and the value of your own solar power before and after net metering. It charges in exactly the cheapest slots needed to fill the battery, and discharges in the most expensive slots it can cover. → [docs/level-2-advanced.md](docs/level-2-advanced.md)
+
+[![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Feurojojo%2Fhomewizard-dynamic-battery%2Fblob%2Fmaster%2Fblueprints%2Fautomation%2Feurojojo%2Fbattery_advanced.yaml)
+
+### 3. Home energy storage: battery, hot water, heating, EV
+
+A set of blueprints that share one price model and one priority order. Each one can be used on its own. → [docs/level-3-home-energy-storage.md](docs/level-3-home-energy-storage.md)
+
+| Blueprint | What it does | Import |
+|---|---|---|
+| Battery: keep it for the house | Smart charging stays in charge, but the battery never discharges into the EV or heat pump | [![Import](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Feurojojo%2Fhomewizard-dynamic-battery%2Fblob%2Fmaster%2Fblueprints%2Fautomation%2Feurojojo%2Fbattery_guard.yaml) |
+| Hot water tank as a heat battery | boost on surplus or very cheap power, comfort in the cheapest block, eco in the most expensive block | [![Import](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Feurojojo%2Fhomewizard-dynamic-battery%2Fblob%2Fmaster%2Fblueprints%2Fautomation%2Feurojojo%2Fhot_water.yaml) |
+| House as a heat battery | pre-heat before and save during the most expensive hours | [![Import](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Feurojojo%2Fhomewizard-dynamic-battery%2Fblob%2Fmaster%2Fblueprints%2Fautomation%2Feurojojo%2Fheating.yaml) |
+| EV: surplus and cheapest hours | charge on solar surplus, in the cheapest hours before you leave, or now | [![Import](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Feurojojo%2Fhomewizard-dynamic-battery%2Fblob%2Fmaster%2Fblueprints%2Fautomation%2Feurojojo%2Fev_charging.yaml) |
+| Stop exporting when it costs money | curtail the inverter at a negative feed-in value | [![Import](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Feurojojo%2Fhomewizard-dynamic-battery%2Fblob%2Fmaster%2Fblueprints%2Fautomation%2Feurojojo%2Fcurtail_export.yaml) |
+
+---
+
+## Installation
+
+Short version (details in [docs/installation.md](docs/installation.md)):
+
+1. **Level 1:** import the blueprint and create an automation from it. Done.
+2. **Level 2 and 3:** also copy [`custom_templates/home_energy_storage.jinja`](custom_templates/home_energy_storage.jinja) to `/config/custom_templates/` and run the action `homeassistant.reload_custom_templates`.
+3. **Level 3:** also add the package [`packages/home_energy_storage.yaml`](packages/home_energy_storage.yaml) (priority, "EV must charge", boost timer), or create those helpers in the UI.
+4. You need a price sensor with a price list: ENTSO-e or Nord Pool work directly, other sources via a small adapter, see [docs/price-sources.md](docs/price-sources.md).
+5. For the HomeWizard battery: enable the battery group mode entity of the P1 Meter, see [docs/homewizard-battery-modes.md](docs/homewizard-battery-modes.md).
+
+## Documentation
+
+- [After net metering: what is a kWh worth?](docs/after-net-metering.md)
+- [HomeWizard battery modes](docs/homewizard-battery-modes.md)
+- [Installation](docs/installation.md)
+- [Price sources](docs/price-sources.md)
+- [Level 1 – simple](docs/level-1-simple.md) · [Level 2 – advanced](docs/level-2-advanced.md) · [Level 3 – home energy storage](docs/level-3-home-energy-storage.md)
+
+## Repository layout
 
 ```
-homewizard-dynamic-battery/
-│
-├── automations/
-│   ├── simple-homewizard-battery-price.yaml
-│   ├── advanced-homewizard-battery-price.yaml
-│   └── advanced_pricing_sensors.yaml
-│
-├── docs/
-│   ├── logictree.md
-│   └── price-curve-percentile-approach.md
-│
-├── README.md   ← this file
-└── LICENSE
+blueprints/automation/eurojojo/   the blueprints (import these)
+custom_templates/                 shared price model (Jinja macros) for level 2 and 3
+packages/                         helpers for level 3 and an optional signals sensor
+docs/                             explanation, decision trees, installation
 ```
 
----
+## Background
 
-# ⚡ Automations
+This started in 2025 as a pair of automations that worked around the missing "charge only" mode of the HomeWizard Plug-In Battery (see [v0.8](https://github.com/eurojojo/homewizard-dynamic-battery/tree/v0.8.0)). HomeWizard has since added that mode and its own Smart charging, so the focus has moved to what really matters after net metering: storing your own power, in every device that can.
 
-The repository contains **two** fully documented automations.
+Level 3 is a generic version of what runs in the author's own home (heat pump with hot water tank, EV, HomeWizard battery, solar panels, dynamic contract).
 
----
+## Contributing
 
-## ✅ Simple Automation  
-📄 [**`automations/simple-homewizard-battery-price.yaml`**](automations/simple-homewizard-battery-price.yaml)
+Questions, ideas and pull requests are welcome, see [CONTRIBUTING.md](CONTRIBUTING.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
-Uses:  
-- fixed *cheap* threshold = `lowest_price + 0.03 EUR`  
-- fixed *expensive* threshold = `highest_price − (spread / 2.5)`  
+## License
 
-Advantages:  
-- no template sensors  
-- easy to understand and adjust  
-- perfect for users who want quick setup  
-
-This automation still includes:
-
-- heavy load protection  
-- super-heavy load override  
-- SoC-aware behaviour  
-- PV-aware charging  
-- arbitrage profitability logic  
-
----
-
-## 🔓 Unlocking Battery Group Mode in Home Assistant
-
-For both the simple and advanced automation, the battery group mode must be unlocked first.  
-
-The battery group mode (“Battery group mode”) is not located under the battery itself, but under the **P1 meter**. This entity is disabled by default.  
-
-In general, it works like this (see also the [Home Assistant documentation on the HomeWizard integration](https://www.home-assistant.io/integrations/homewizard/#plug-in-battery)):
-
-1. In Home Assistant, go to **Settings → Devices & Services**.
-2. Open the **HomeWizard Energy** integration.
-3. Click on your **P1 meter** device.
-4. In the **Configuration** section, you will see a link such as `+1 disabled entity` (or another number).
-5. Click on it, open the “Batterijgroepmodus” entity and click the gear icon in the top-right corner.
-6. Enable the entity and click Save.
-7. After ~30 seconds it will appear as a normal entity, for example `select.p1_meter_batterygroupmode`.
-
-You can now also place this entity on a dashboard to see what your automation is doing.
-
----
-
-## 👷👷‍♀️ Creating an Automation in Home Assistant
-
-We will create a single automation that:
-
-* checks the current ENTSO price and the daily curve (lowest/highest price);
-* checks the state of charge (SoC) and the import/export from the P1 meter;
-* based on that, selects the mode `zero`, `to_full`, or `standby`.
-
-### Step 1 – Create an empty automation
-
-1. Go to **Settings → Automations & Scenes → Automations**.
-2. Click **+ Add automation**.
-3. Choose **Empty automation**.
-4. At the top, enter a name, for example:  
-   `HomeWizard battery based on energy price`
-5. Click **Save** once at the bottom.
-
-### Step 2 – Open the YAML editor
-
-1. In the same automation, click the **three dots (⋮)** in the top-right corner.
-2. Choose **Edit in YAML**.
-3. Replace the entire contents with the YAML below and adjust the `entity_id`s to match your installation if needed.
-
-📄 [**`automations/simple-homewizard-battery-price.yaml`**](automations/simple-homewizard-battery-price.yaml)
-
----
-
-## 🔥 Advanced Automation  
-
-This version uses **statistical analysis** of the daily ENTSO-e price curve to compute dynamic thresholds.
-
-The full explanation and how to install can be found here:
-
-📄 [**`docs/price-curve-percentile-approach.md`**](docs/price-curve-percentile-approach.md)
-
----
-
-### 🪾 Full decision tree
-
-The decision tree provides a **clear, human-readable overview** of how the automation behaves in every possible situation.  
-It is the conceptual model behind both the simple and advanced automations.  
-It reflects the intended behaviour in real-world scenarios, independent of implementation details.
-
-While the YAML files contain the precise implementation, the structure of the logic can be difficult to follow directly from code.  
-
-Using a decision tree helps for:
-
-#### 1. **Clarity**
-It breaks complex logic into intuitive branches. For example "What happens during cheap hours?"  
-
-#### 2. **Transparency**
-Every condition that affects the battery state is shown explicitly, like heavy and super-heavy load overrides and thresholds for cheap / midzone / expensive hours  
-
-#### 3. **Safety and Predictability**
-The tree makes it easy to verify that:  
-- the battery stays out of the way during EV charging  
-- it always uses solar when available  
-- it avoids unnecessary cycling near 100% SoC  
-- it only performs arbitrage when it is profitable
-
-See the decision tree in [`docs/logictree.md`](docs/logictree.md)  
-
----
-
-# 👤 Author & License
-
-**Author:** Joost Smits  
-**GitHub:** https://github.com/eurojojo  
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
-You are free to use, modify and distribute this work, provided attribution is preserved.
-
----
-
-# 🤝 Contributing
-
-Suggestions, improvements and pull requests are welcome!  
-This automation continues to improve as HomeWizard updates its API and as more users adopt dynamic charging strategies.
-
+[MIT](LICENSE) © Joost Smits

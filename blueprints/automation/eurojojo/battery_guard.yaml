@@ -1,0 +1,150 @@
+blueprint:
+  name: "Home energy storage – battery: keep it for the house"
+  description: >
+    Lets HomeWizard's own *Smart charging* (`predictive`) run the Plug-In
+    Battery, but stops it from discharging into the big flexible loads that
+    are themselves storing energy: the EV and the heat pump. Emptying an
+    800 W battery into a car or a hot water tank only moves energy from one
+    store to another and loses ~25 % on the way.
+
+
+    While a flexible load runs the mode becomes `zero_charge_only`: solar
+    surplus may still be stored, nothing is discharged. Exception: if the rest
+    of the house uses a lot at the same time (oven, induction hob), the
+    battery may help, because its power then goes to that load.
+
+
+    Part of the *home energy storage* set (level 3).
+    Documentation: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/docs/level-3-home-energy-storage.md
+  domain: automation
+  author: Joost Smits
+  source_url: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/blueprints/automation/eurojojo/battery_guard.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    battery_mode:
+      name: Battery group charging strategy
+      selector:
+        entity:
+          filter:
+            - domain: select
+              integration: homewizard
+    base_mode:
+      name: Normal mode
+      description: The mode when no flexible load runs.
+      default: predictive
+      selector:
+        select:
+          options:
+            - predictive
+            - zero
+    flexible_loads:
+      name: Flexible loads are running
+      description: >
+        Binary sensors that are on while the heat pump runs or the EV charges.
+        No binary sensor? Create a threshold helper on a power sensor
+        (Settings → Helpers → Threshold).
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: binary_sensor
+    flexible_power:
+      name: Estimated power of each running flexible load
+      description: Subtracted from the house load to find what the rest of the house uses.
+      default: 1500
+      selector:
+        number:
+          min: 0
+          max: 22000
+          step: 100
+          mode: box
+          unit_of_measurement: W
+    grid_power:
+      name: Grid power (W, + import / − export)
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: power
+    solar_power:
+      name: Solar power (W, optional)
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: power
+    battery_power:
+      name: Battery power (W, + charging, optional)
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: power
+    other_load_exception:
+      name: Allow discharging when the rest of the house uses more than
+      default: 1500
+      selector:
+        number:
+          min: 0
+          max: 20000
+          step: 100
+          mode: box
+          unit_of_measurement: W
+
+mode: queued
+max: 3
+
+triggers:
+  - trigger: state
+    entity_id: !input flexible_loads
+  - trigger: state
+    entity_id: !input battery_mode
+    for:
+      seconds: 30
+  - trigger: time_pattern
+    minutes: /1
+
+variables:
+  battery_mode: !input battery_mode
+  base_mode: !input base_mode
+  flexible_loads: !input flexible_loads
+  flexible_power: !input flexible_power
+  grid_power: !input grid_power
+  solar_power: !input solar_power
+  battery_power: !input battery_power
+  other_load_exception: !input other_load_exception
+
+conditions:
+  # Only act in the modes this automation sets itself, so a manual `standby`
+  # or `to_full` (or another automation) is left alone.
+  - condition: template
+    value_template: "{{ states(battery_mode) in [base_mode, 'zero_charge_only'] }}"
+
+actions:
+  - variables:
+      running: "{{ flexible_loads | select('is_state', 'on') | list | count }}"
+      house_w: >
+        {{ states(grid_power) | float(0)
+           + (states(solar_power) | float(0) if solar_power else 0)
+           - (states(battery_power) | float(0) if battery_power else 0) }}
+  - variables:
+      other_w: "{{ (house_w - running * flexible_power) | round(0) }}"
+  - variables:
+      target: "{{ 'zero_charge_only' if running > 0 and other_w <= other_load_exception else base_mode }}"
+  - if:
+      - condition: template
+        value_template: "{{ states(battery_mode) != target }}"
+    then:
+      - action: select.select_option
+        target:
+          entity_id: "{{ battery_mode }}"
+        data:
+          option: "{{ target }}"
+      - action: logbook.log
+        data:
+          name: Home battery
+          entity_id: "{{ battery_mode }}"
+          message: "{{ target }} (flexible loads running: {{ running }}, rest of the house {{ other_w }} W)"

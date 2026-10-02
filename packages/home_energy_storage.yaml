@@ -1,0 +1,95 @@
+# Home Energy Storage – helpers and a signals sensor
+# https://github.com/eurojojo/homewizard-dynamic-battery
+#
+# Install (see docs/installation.md):
+#   1. configuration.yaml:
+#        homeassistant:
+#          packages: !include_dir_named packages
+#   2. Copy this file to /config/packages/home_energy_storage.yaml
+#   3. Change the price sensor and markup below (marked with ← CHANGE)
+#   4. Restart Home Assistant
+#
+# The level-3 blueprints use these helpers by default. You can also create
+# them yourself in Settings → Devices & services → Helpers and skip this file.
+
+input_select:
+  hes_priority:
+    name: Energy storage priority
+    icon: mdi:sort-variant
+    options:
+      - Battery → Hot water → EV
+      - Battery → EV → Hot water
+      - Hot water → Battery → EV
+      - Hot water → EV → Battery
+      - EV → Battery → Hot water
+      - EV → Hot water → Battery
+    initial: Battery → Hot water → EV
+
+input_boolean:
+  hes_ev_must_charge:
+    name: EV must charge
+    icon: mdi:car-electric
+  hes_ev_smart_charging:
+    name: EV smart charging
+    icon: mdi:ev-station
+
+timer:
+  hes_hot_water_boost:
+    name: Hot water solar boost
+    icon: mdi:water-boiler
+    duration: "01:00:00"
+    restore: true
+
+input_number:
+  # Internal: original thermostat target while pre-heating or saving.
+  # -1 = idle, 0 = backed off after a manual change. Don't change it yourself.
+  hes_heating_base:
+    name: Heating original target (internal)
+    icon: mdi:thermostat
+    min: -1
+    max: 35
+    step: 0.1
+    mode: box
+    initial: -1
+
+template:
+  # Optional: shows the price signals the blueprints work with, for dashboards
+  # and for checking your configuration (Developer tools → States).
+  - triggers:
+      - trigger: time_pattern
+        minutes: /1
+      - trigger: homeassistant
+        event: start
+    actions:
+      - variables:
+          # ← CHANGE: your price sensor, markup and first day without net metering
+          price_sensor: sensor.entso_e_average_electricity_price
+          markup: 0.145
+          net_metering_until: "2027-01-01"
+      - variables:
+          s: >
+            {% from 'home_energy_storage.jinja' import hes_signals %}
+            {{ hes_signals(price_sensor, markup, net_metering_until) | from_json }}
+    sensor:
+      - name: Energy storage price now
+        unique_id: hes_price_now
+        icon: mdi:chart-bell-curve
+        unit_of_measurement: "€/kWh"
+        state: "{{ s.price_now if s.ok else none }}"
+        attributes:
+          feed_in_now: "{{ s.feed_in_now if s.ok else none }}"
+          net_metering: "{{ s.net_metering if s.ok else none }}"
+          cheap_now: "{{ s.cheap_now if s.ok else none }}"
+          expensive_now: "{{ s.expensive_now if s.ok else none }}"
+          very_cheap_now: "{{ s.very_cheap_now if s.ok else none }}"
+          q1: "{{ s.q1 if s.ok else none }}"
+          median: "{{ s.median if s.ok else none }}"
+          q3: "{{ s.q3 if s.ok else none }}"
+          cheapest_block: >
+            {{ (s.cheapest_block.start | timestamp_custom('%H:%M') ~ '–' ~ s.cheapest_block.end | timestamp_custom('%H:%M'))
+               if s.ok and s.cheapest_block else none }}
+          priciest_block: >
+            {{ (s.priciest_block.start | timestamp_custom('%H:%M') ~ '–' ~ s.priciest_block.end | timestamp_custom('%H:%M'))
+               if s.ok and s.priciest_block else none }}
+          slot_minutes: "{{ s.slot_minutes if s.ok else none }}"
+          problem: "{{ none if s.ok else s.reason }}"

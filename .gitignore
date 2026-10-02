@@ -2,8 +2,13 @@
 __pycache__/
 *.pyc
 .venv/
-.env
 
-# OS
+# Secrets – never commit these
+.env
+secrets.yaml
+
+# Editors and OS
+.vscode/
+.idea/
 .DS_Store
 Thumbs.db

@@ -1,0 +1,169 @@
+{#-
+  Home Energy Storage – shared template macros
+  https://github.com/eurojojo/homewizard-dynamic-battery
+
+  Install: copy this file to /config/custom_templates/ and run the action
+  "homeassistant.reload_custom_templates" (or restart Home Assistant).
+
+  Use in a template:
+    {% from 'home_energy_storage.jinja' import hes_signals %}
+    {% set s = hes_signals('sensor.my_prices', markup=0.145) | from_json %}
+    {{ s.price_now }}
+
+  All prices are in your currency per kWh. "spot" is the price exactly as your
+  price sensor reports it; "price" (C) is what one extra kWh from the grid costs
+  you (spot + markup); "feed_in" (R) is what one kWh exported earns you.
+-#}
+
+{#-
+  hes_prices(entity_id)
+  Normalised price list as JSON: [{"ts": <unix start>, "spot": <float>}, ...],
+  sorted by time and de-duplicated. Understands the attribute formats of:
+    - ENTSO-e (hass-entso-e): prices / prices_today / prices_tomorrow  -> time, price
+    - Nord Pool (HACS custom-components/nordpool): raw_today / raw_tomorrow -> start, value
+    - any sensor with a list in "prices", "data" or "forecast" whose items have
+      a start (start / time / startsAt / start_time / timestamp) and a price
+      (price / value / total / price_per_kwh)
+  For other sources (Nord Pool core integration, Tibber, EnergyZero, ...) see
+  docs/price-sources.md for a ready-made adapter sensor.
+-#}
+{%- macro hes_prices(entity_id) -%}
+  {%- set st = states[entity_id] if entity_id else none -%}
+  {%- set a = st.attributes if st is not none else {} -%}
+  {%- set ns = namespace(raw=[], seen=[], out=[]) -%}
+  {%- for key in ['prices', 'prices_today', 'prices_tomorrow', 'raw_today', 'raw_tomorrow', 'data', 'forecast'] -%}
+    {%- set v = a.get(key) -%}
+    {%- if v is iterable and v is not string and v is not mapping -%}
+      {%- set ns.raw = ns.raw + (v | list) -%}
+    {%- endif -%}
+  {%- endfor -%}
+  {%- for p in ns.raw if p is mapping -%}
+    {%- set t = p.get('start', p.get('time', p.get('startsAt', p.get('start_time', p.get('timestamp'))))) -%}
+    {%- set v = p.get('price', p.get('value', p.get('total', p.get('price_per_kwh')))) -%}
+    {%- set dt = as_datetime(t | string) if t is not none else none -%}
+    {%- if dt is not none and v is not none and (v | float('x')) != 'x' -%}
+      {%- set ts = as_timestamp(dt) | int -%}
+      {%- if ts not in ns.seen -%}
+        {%- set ns.seen = ns.seen + [ts] -%}
+        {%- set ns.out = ns.out + [{'ts': ts, 'spot': v | float}] -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endfor -%}
+  {{- ns.out | sort(attribute='ts') | to_json -}}
+{%- endmacro -%}
+
+{#- Linear-interpolated percentile (p = 0..1) of a sorted list of numbers. -#}
+{%- macro hes_percentile(sorted_values, p) -%}
+  {%- set n = sorted_values | length -%}
+  {%- if n == 0 -%}none
+  {%- elif n == 1 -%}{{ sorted_values[0] }}
+  {%- else -%}
+    {%- set pos = p * (n - 1) -%}
+    {%- set lo = pos | int -%}
+    {%- set hi = [lo + 1, n - 1] | min -%}
+    {{- sorted_values[lo] + (sorted_values[hi] - sorted_values[lo]) * (pos - lo) -}}
+  {%- endif -%}
+{%- endmacro -%}
+
+{#-
+  hes_signals(entity_id, ...)
+  Everything the automations need, as JSON (use: | from_json).
+
+  Parameters
+    markup             added to the spot price to get your all-in purchase price
+                       (energy tax, supplier surcharge, VAT on those). 0 if your
+                       sensor already reports all-in prices.
+    net_metering_until 'YYYY-MM-DD': first day WITHOUT net metering (NL: '2027-01-01').
+                       Empty string = no net metering.
+    feed_in_factor     after net metering: feed-in value = spot * factor - fee
+    feed_in_fee        after net metering: per-kWh feed-in cost (terugleverkosten)
+    block_hours        length of the cheapest block of the day (e.g. hot water)
+    expensive_hours    length of the most expensive block of the day
+    very_cheap_pct     "very cheap" = among the cheapest X % of today's slots ...
+    very_cheap_factor  ... and at most factor * today's median (or a negative spot price)
+
+  Returns (prices per kWh, times as unix timestamps)
+    ok, slot_minutes, net_metering, spot_now, price_now, feed_in_now,
+    min, max, median, q1, q3, outlier (Q3 + 1.5 * IQR),
+    cheap_now (<= Q1), expensive_now (>= Q3), very_cheap_now,
+    cheapest_block {start, end, avg}, priciest_block {start, end, avg, premium},
+    in_cheapest_block, in_priciest_block,
+    remaining_asc (all-in prices of the current and all known future slots, ascending),
+    horizon_end
+-#}
+{%- macro hes_signals(entity_id, markup=0, net_metering_until='', feed_in_factor=1.0, feed_in_fee=0.0,
+                      block_hours=2, expensive_hours=3, very_cheap_pct=10, very_cheap_factor=0.75) -%}
+  {%- set plist = hes_prices(entity_id) | from_json -%}
+  {%- set n_all = plist | length -%}
+  {%- set now_ts = as_timestamp(now()) -%}
+  {%- set day_start = as_timestamp(today_at('00:00')) -%}
+  {%- set day_end = as_timestamp(today_at('00:00') + timedelta(days=1)) -%}
+  {%- set nm = net_metering_until | string | length > 0 and now().strftime('%Y-%m-%d') < (net_metering_until | string) -%}
+  {%- set ns = namespace(slot=3600, cur=none, today=[], rem=[], cb=none, pb=none) -%}
+  {%- for i in range(1, n_all) -%}
+    {%- set d = plist[i].ts - plist[i - 1].ts -%}
+    {%- if 0 < d < ns.slot -%}{%- set ns.slot = d -%}{%- endif -%}
+  {%- endfor -%}
+  {%- for p in plist -%}
+    {%- set c = p.spot + markup -%}
+    {%- if p.ts <= now_ts < p.ts + ns.slot -%}{%- set ns.cur = p -%}{%- endif -%}
+    {%- if day_start <= p.ts < day_end -%}{%- set ns.today = ns.today + [{'ts': p.ts, 'c': c}] -%}{%- endif -%}
+    {%- if p.ts + ns.slot > now_ts -%}{%- set ns.rem = ns.rem + [c] -%}{%- endif -%}
+  {%- endfor -%}
+  {%- set vals = ns.today | map(attribute='c') | sort -%}
+  {%- set n = vals | length -%}
+  {%- if ns.cur is none or n < 2 -%}
+    {{- {'ok': false, 'reason': 'no current price or fewer than 2 prices today', 'prices_found': n_all} | to_json -}}
+  {%- else -%}
+    {%- set spot = ns.cur.spot -%}
+    {%- set price = spot + markup -%}
+    {%- set feed_in = price if nm else spot * feed_in_factor - feed_in_fee -%}
+    {%- set q1 = hes_percentile(vals, 0.25) | float -%}
+    {%- set med = hes_percentile(vals, 0.5) | float -%}
+    {%- set q3 = hes_percentile(vals, 0.75) | float -%}
+    {%- set pct_limit = vals[[((very_cheap_pct / 100) * n) | round(0, 'ceil') | int - 1, 0] | max] -%}
+    {#- cheapest and most expensive contiguous blocks of today -#}
+    {%- set kc = ((block_hours * 3600) / ns.slot) | round(0) | int -%}
+    {%- set ke = ((expensive_hours * 3600) / ns.slot) | round(0) | int -%}
+    {%- for i in range(0, n) -%}
+      {%- if kc > 0 and i + kc <= n and ns.today[i + kc - 1].ts - ns.today[i].ts == (kc - 1) * ns.slot -%}
+        {%- set avg = (ns.today[i:i + kc] | map(attribute='c') | sum) / kc -%}
+        {%- if ns.cb is none or avg < ns.cb.avg -%}
+          {%- set ns.cb = {'start': ns.today[i].ts, 'end': ns.today[i].ts + kc * ns.slot, 'avg': avg | round(5)} -%}
+        {%- endif -%}
+      {%- endif -%}
+      {%- if ke > 0 and i + ke <= n and ns.today[i + ke - 1].ts - ns.today[i].ts == (ke - 1) * ns.slot -%}
+        {%- set avg = (ns.today[i:i + ke] | map(attribute='c') | sum) / ke -%}
+        {%- if ns.pb is none or avg > ns.pb.avg -%}
+          {%- set ns.pb = {'start': ns.today[i].ts, 'end': ns.today[i].ts + ke * ns.slot, 'avg': avg | round(5)} -%}
+        {%- endif -%}
+      {%- endif -%}
+    {%- endfor -%}
+    {%- if ns.pb is not none -%}
+      {%- set ns.pb = dict(ns.pb, premium=((ns.pb.avg / med) if med > 0 else 0) | round(3)) -%}
+    {%- endif -%}
+    {{- {
+      'ok': true,
+      'slot_minutes': (ns.slot / 60) | int,
+      'net_metering': nm,
+      'spot_now': spot | round(5),
+      'price_now': price | round(5),
+      'feed_in_now': feed_in | round(5),
+      'min': vals[0] | round(5),
+      'max': vals[-1] | round(5),
+      'median': med | round(5),
+      'q1': q1 | round(5),
+      'q3': q3 | round(5),
+      'outlier': (q3 + 1.5 * (q3 - q1)) | round(5),
+      'cheap_now': price <= q1,
+      'expensive_now': price >= q3,
+      'very_cheap_now': spot < 0 or (price <= pct_limit and price <= very_cheap_factor * med),
+      'cheapest_block': ns.cb,
+      'priciest_block': ns.pb,
+      'in_cheapest_block': ns.cb is not none and ns.cb.start <= now_ts < ns.cb.end,
+      'in_priciest_block': ns.pb is not none and ns.pb.start <= now_ts < ns.pb.end,
+      'remaining_asc': ns.rem | sort | map('round', 5) | list,
+      'horizon_end': plist[-1].ts + ns.slot,
+    } | to_json -}}
+  {%- endif -%}
+{%- endmacro -%}

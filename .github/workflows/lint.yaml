@@ -1,0 +1,15 @@
+name: Lint
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  yamllint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: yamllint
+        run: |
+          pip install yamllint
+          yamllint --strict --format github blueprints packages .github
