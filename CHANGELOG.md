@@ -2,7 +2,7 @@
 
 Notable changes per version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the version numbers follow [semantic versioning](https://semver.org/).
 
-## [1.0.0] - 2026-10
+## [1.0.0] - 2026-10-03
 
 The project was called *homewizard-dynamic-battery* and is now *home-energy-storage*. It used to be about a smarter HomeWizard battery. Now it is about storing your own power once net metering ends, in the hot water tank, the house, the EV and the battery. Old links to the repository keep working, GitHub redirects them.
 
