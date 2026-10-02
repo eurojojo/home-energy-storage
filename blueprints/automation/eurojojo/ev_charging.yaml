@@ -1,34 +1,30 @@
 blueprint:
-  name: "Home energy storage – EV: charge on surplus and in the cheapest hours"
+  name: "Energy storage: charge the EV on surplus and in the cheapest hours"
   description: >
-    The EV is by far the biggest battery in most homes. This blueprint switches
-    a charger on and off:
-
-    - **EV must charge** (helper on): always charge.
-
-    - **Cheapest hours**: in the cheapest N hours of the 24 hours before your
-      "ready by" time.
-
-    - **Solar surplus**: start when enough power is exported for a few minutes,
-      stop when the house imports again for a few minutes.
+    In most homes the EV is by far the biggest battery. This blueprint turns a
+    charger on and off. With the "EV must charge" helper on, it always
+    charges. Otherwise it charges in the cheapest hours of the 24 hours before
+    your "ready by" time, and on solar surplus: it starts when enough power is
+    exported for a few minutes and stops when the house imports again for a
+    few minutes.
 
 
-    It only acts while the "smart charging" helper is on, so you keep full
-    manual control when it is off.
+    It only acts while the "smart charging" helper is on, so with that helper
+    off you have full manual control.
 
 
-    **Test this during the day first.** Some chargers and cars do not like a
-    session being paused and resumed remotely (error on the car, or charging
-    that does not resume until the cable is reconnected). If that happens with
-    yours, don't use this blueprint.
+    Test this during the day first. Some chargers and cars don't like a
+    session being paused and resumed remotely. You may get an error in the
+    car, or charging that won't resume until you reconnect the cable. If that
+    happens with yours, don't use this blueprint.
 
 
-    **Requires** `custom_templates/home_energy_storage.jinja`.
-    Part of the *home energy storage* set (level 3).
-    Documentation: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/docs/level-3-home-energy-storage.md
+    Needs `custom_templates/home_energy_storage.jinja`. Part of the home
+    energy storage set (level 3).
+    Documentation: https://github.com/eurojojo/home-energy-storage/blob/master/docs/level-3-home-energy-storage.md
   domain: automation
   author: Joost Smits
-  source_url: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/blueprints/automation/eurojojo/ev_charging.yaml
+  source_url: https://github.com/eurojojo/home-energy-storage/blob/master/blueprints/automation/eurojojo/ev_charging.yaml
   homeassistant:
     min_version: "2024.10.0"
   input:

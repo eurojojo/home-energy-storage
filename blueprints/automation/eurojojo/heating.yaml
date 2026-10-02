@@ -1,33 +1,26 @@
 blueprint:
-  name: "Home energy storage – house as a heat battery (pre-heating)"
+  name: "Energy storage: pre-heat the house before the expensive hours"
   description: >
-    Uses the house itself (floors, walls, furniture) as storage: a little
-    warmer just before the most expensive hours of the day, a little cooler
-    during them. With a heat pump this moves heating to cheaper hours with
-    hardly any comfort loss.
+    Uses the house itself as storage. The floors, walls and furniture hold a
+    lot of heat. The thermostat goes a little higher in the hours before the
+    most expensive block of the day and a little lower during it. With a heat
+    pump that moves heating to cheaper hours, and you hardly notice it.
 
 
-    - **Pre-heat**: target + offset during the hours before the most expensive block,
-      if that is clearly cheaper.
-
-    - **Save**: target − offset during the most expensive block.
-
-    - Afterwards the original target is restored. If you (or the thermostat's
-      own schedule) change the target in between, the automation backs off
-      until the next block.
+    Afterwards the original target comes back. If you, or the thermostat's
+    own schedule, change the target in between, the automation backs off
+    until the next block. It only runs in the heating season (outdoor
+    temperature below a limit) and only in the HVAC modes you choose.
 
 
-    Only in the heating season (outdoor temperature below a limit) and only in
-    the HVAC modes you choose.
-
-
-    **Requires** `custom_templates/home_energy_storage.jinja` and a number
-    helper to remember the original target (the package creates
-    `input_number.hes_heating_base`). Part of the *home energy storage* set (level 3).
-    Documentation: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/docs/level-3-home-energy-storage.md
+    Needs `custom_templates/home_energy_storage.jinja` and a number helper
+    that remembers the original target (the package creates
+    `input_number.hes_heating_base`). Part of the home energy storage set
+    (level 3).
+    Documentation: https://github.com/eurojojo/home-energy-storage/blob/master/docs/level-3-home-energy-storage.md
   domain: automation
   author: Joost Smits
-  source_url: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/blueprints/automation/eurojojo/heating.yaml
+  source_url: https://github.com/eurojojo/home-energy-storage/blob/master/blueprints/automation/eurojojo/heating.yaml
   homeassistant:
     min_version: "2024.10.0"
   input:

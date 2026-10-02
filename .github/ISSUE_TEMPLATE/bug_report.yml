@@ -7,13 +7,13 @@ body:
     attributes:
       label: Which part?
       options:
-        - Level 1 – battery simple
-        - Level 2 – battery advanced
-        - Level 3 – battery guard
-        - Level 3 – hot water
-        - Level 3 – heating
-        - Level 3 – EV charging
-        - Level 3 – curtail export
+        - Level 1: battery simple
+        - Level 2: battery advanced
+        - Level 3: battery guard
+        - Level 3: hot water
+        - Level 3: heating
+        - Level 3: EV charging
+        - Level 3: curtail export
         - Price model (home_energy_storage.jinja)
         - Package / helpers
         - Documentation

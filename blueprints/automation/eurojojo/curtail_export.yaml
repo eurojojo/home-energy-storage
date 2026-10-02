@@ -1,27 +1,24 @@
 blueprint:
-  name: "Home energy storage – stop exporting when it costs money"
+  name: "Energy storage: stop exporting when it costs money"
   description: >
-    When exporting costs money (negative feed-in value), limit or switch off
-    the solar inverter, and restore it when exporting pays again. Run this
-    after the storage automations: first store what you can, then curtail
-    what is left.
+    When exporting costs money (a negative feed-in value), this limits or
+    switches off the solar inverter, and restores it once exporting pays
+    again. Let the storage automations go first: store what you can, then
+    curtail what is left.
 
 
-    The feed-in value is the all-in price while net metering lasts and
-    *sensor price × factor − fee* afterwards, the same rule as in the other
-    blueprints.
+    The feed-in value is the all-in price while net metering lasts, and the
+    sensor price × factor − fee after that, the same rule the other
+    blueprints use. Works with an on/off switch or with a power-limit number
+    entity, such as a Growatt or SolarEdge export limit.
 
 
-    Works with an on/off switch or with a power-limit number entity (e.g. a
-    Growatt or SolarEdge export limit).
-
-
-    **Requires** `custom_templates/home_energy_storage.jinja`.
-    Part of the *home energy storage* set (level 3).
-    Documentation: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/docs/level-3-home-energy-storage.md
+    Needs `custom_templates/home_energy_storage.jinja`. Part of the home
+    energy storage set (level 3).
+    Documentation: https://github.com/eurojojo/home-energy-storage/blob/master/docs/level-3-home-energy-storage.md
   domain: automation
   author: Joost Smits
-  source_url: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/blueprints/automation/eurojojo/curtail_export.yaml
+  source_url: https://github.com/eurojojo/home-energy-storage/blob/master/blueprints/automation/eurojojo/curtail_export.yaml
   homeassistant:
     min_version: "2024.10.0"
   input:

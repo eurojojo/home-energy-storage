@@ -1,34 +1,29 @@
 blueprint:
-  name: "Home battery – simple price control (HomeWizard)"
+  name: "HomeWizard battery: simple price control"
   description: >
-    Controls the HomeWizard Plug-In Battery with the charging strategies of
-    HomeWizard firmware (P1 Meter ≥ 6.04): `zero`, `zero_charge_only`,
-    `to_full` and `standby`.
+    Switches the HomeWizard Plug-In Battery between the firmware modes
+    `zero`, `zero_charge_only`, `to_full` and `standby`, based on today's
+    lowest and highest price.
 
 
-    **Most people do not need this.** HomeWizard's own *Smart charging*
-    (`predictive`, "Smart with dynamic tariffs" in the HomeWizard app) already
-    charges from the grid when power is cheap. Use this blueprint if you want to
-    see and tune the logic yourself.
+    You probably don't need this. HomeWizard's own Smart charging
+    (`predictive`, "Smart with dynamic tariffs" in the app) already charges
+    from the grid when power is cheap. Use this blueprint if you want to see
+    the logic and tune it yourself.
 
 
-    Cheap = at most *lowest price + margin*; expensive = at least
-    *highest price − spread ÷ divisor*.
-
-    - Heavy load (e.g. EV charging): no discharging, solar may still charge.
-
-    - Cheap and arbitrage pays: charge from the grid (`to_full`).
-
-    - Expensive: net zero (`zero`, the battery supplies the house).
-
-    - In between: while net metering lasts `standby` (exporting is free storage),
-      after net metering `zero` (use your own solar power).
+    Cheap means at most the lowest price plus a margin. Expensive means at
+    least the highest price minus the spread divided by a number you choose.
+    During a heavy load, such as the EV charging, the battery doesn't
+    discharge. When it is cheap and grid charging pays, it fills up. When it
+    is expensive, it supplies the house. In between it waits (`standby`) while
+    net metering lasts, and runs net zero (`zero`) after that.
 
 
-    Documentation: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/docs/level-1-simple.md
+    Documentation: https://github.com/eurojojo/home-energy-storage/blob/master/docs/level-1-simple.md
   domain: automation
   author: Joost Smits
-  source_url: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/blueprints/automation/eurojojo/battery_simple.yaml
+  source_url: https://github.com/eurojojo/home-energy-storage/blob/master/blueprints/automation/eurojojo/battery_simple.yaml
   homeassistant:
     min_version: "2024.10.0"
   input:

@@ -1,34 +1,28 @@
 blueprint:
-  name: "Home battery – advanced price control (HomeWizard)"
+  name: "HomeWizard battery: advanced price control"
   description: >
-    Controls the HomeWizard Plug-In Battery with the full price curve
-    (15-minute or hourly prices), the state of charge and the value of your
-    own solar power after net metering ends.
+    Controls the HomeWizard Plug-In Battery with the whole price curve
+    (15-minute or hourly), the state of charge, and what your own solar power
+    is worth before and after net metering.
 
 
-    Each run it asks four questions, in this order:
-
-    1. Is a big flexible load running (EV, heat pump)? → don't discharge into it
-       (`zero_charge_only`).
-
-    2. Is now one of the cheapest slots needed to fill the battery, and does
-       charging from the grid still pay after round-trip losses? → `to_full`.
-
-    3. Is now one of the most expensive slots for the energy that is in the
-       battery? → `zero` (supply the house).
-
-    4. Does storing solar surplus pay (feed-in value ÷ efficiency below the
-       later price)? → `zero_charge_only`, otherwise `standby`.
+    Every minute it goes through four questions, in this order. Is a big
+    flexible load running, like the EV or the heat pump? Then don't discharge
+    into it (`zero_charge_only`). Is this one of the cheapest slots needed to
+    fill the battery, and does grid charging still pay after the round-trip
+    loss? Then `to_full`. Is this one of the most expensive slots the stored
+    energy can cover? Then `zero`. Does storing solar surplus pay? Then
+    `zero_charge_only`, and otherwise `standby`.
 
 
-    **Requires** `custom_templates/home_energy_storage.jinja` from the
-    repository. Try HomeWizard's own *Smart charging* (`predictive`) first.
+    Needs `custom_templates/home_energy_storage.jinja` from the repository.
+    Give HomeWizard's own Smart charging (`predictive`) a try first.
 
 
-    Documentation: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/docs/level-2-advanced.md
+    Documentation: https://github.com/eurojojo/home-energy-storage/blob/master/docs/level-2-advanced.md
   domain: automation
   author: Joost Smits
-  source_url: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/blueprints/automation/eurojojo/battery_advanced.yaml
+  source_url: https://github.com/eurojojo/home-energy-storage/blob/master/blueprints/automation/eurojojo/battery_advanced.yaml
   homeassistant:
     min_version: "2024.10.0"
   input:

@@ -1,48 +1,47 @@
 # After net metering: what is a kWh worth?
 
-All blueprints in this repository make the same comparison: **what does it cost to store a kWh now, and what is it worth later?** This page explains the three prices they use.
+Every blueprint in this repository asks the same question. What does it cost to store a kWh now, and what will it be worth later? This page explains the prices they use for that.
 
 ## Three prices per time slot
 
 | Symbol | Name in the blueprints | Meaning |
 |---|---|---|
-| S | `spot_now` | the price exactly as your price sensor reports it (often the day-ahead market price, per 15 minutes or per hour) |
-| C | `price_now` | what one extra kWh **from the grid** costs you: S + *markup* |
-| R | `feed_in_now` | what one kWh **exported** earns you |
+| S | `spot_now` | the price exactly as your price sensor reports it, usually the day-ahead market price per 15 minutes or per hour |
+| C | `price_now` | what one extra kWh from the grid costs you: S plus the markup |
+| R | `feed_in_now` | what one exported kWh earns you |
 
-The *markup* is everything your supplier adds per kWh: energy tax, supplier surcharge and VAT on those. In the Netherlands in 2026 this is about € 0.145 per kWh including VAT (check your own contract). If your price sensor already shows all-in prices, use 0.
+The markup is what your supplier adds per kWh on top of the sensor price: energy tax, a surcharge and the VAT on those. In the Netherlands in 2026 that comes to about € 0.145 per kWh including VAT, but check your own contract. If your price sensor already shows all-in prices, set it to 0.
 
 ### While net metering lasts
 
-Every exported kWh is offset against an imported kWh at the full price, so **R = C**. The grid works as a free, lossless battery. Storing your own solar power in a battery only *loses* energy (about 25 % round trip). It only pays when the price later is clearly higher than now, which is ordinary price arbitrage.
+An exported kWh is offset against an imported kWh at the full price, so R = C. The grid is a free battery without losses. Putting your own solar power in a battery only costs you the round-trip loss of about 25 %. It pays only when the price later is clearly higher than now, which is plain price arbitrage.
 
 ### After net metering
 
-**R = S × feed-in factor − feed-in fee.** Typical values:
+Now R = S × feed-in factor − feed-in fee. Some typical settings:
 
-- **Dynamic contract:** feed-in factor 1 (or 0.826 if your sensor includes 21 % VAT and the compensation does not), plus whatever feed-in fee your supplier charges. R follows the market price and can be negative.
-- **Fixed contract:** the law guarantees at least 50 % of the bare supply price until 2030, minus possible feed-in costs. Model it with a factor and a fee, or use a fixed R.
+- Dynamic contract: factor 1, or 0.826 if your sensor includes 21 % VAT and the compensation doesn't. Subtract the feed-in fee your supplier charges. R follows the market and can go below zero.
+- Fixed contract: until 2030 the law guarantees at least 50 % of the bare supply price, minus possible feed-in costs. A factor and a fee get you close enough.
 
-Now **C − R** is large, typically € 0.15–0.30 per kWh. Every kWh of your own power that you use instead of export saves that amount. Storing solar power becomes worthwhile, also with losses:
+The gap C − R is now large, usually € 0.15 to € 0.30 per kWh. That is what you save on every kWh of your own power that you use instead of export. Storing solar power starts to pay, even with losses. The rule the blueprints use:
 
-> Store when **R ÷ efficiency + minimum profit ≤ the value later**.
+> Store when R ÷ efficiency + minimum profit ≤ the value later.
 
-With R = € 0.08, 75 % round-trip efficiency and € 0.02 minimum profit, the battery may store solar power if it can later replace power that costs at least € 0.127. That is almost always the case. Under net metering, with R = C = € 0.30, the price later would have to be at least € 0.42.
+An example: R = € 0.08, a round-trip efficiency of 75 % and a minimum profit of € 0.02. The battery may store solar power if it can replace power later that costs at least € 0.127. That is nearly always true. Under net metering, with R = C = € 0.30, the price later would have to be € 0.42 or more.
 
 ## What counts as "later"?
 
-- **Battery:** the average of the most expensive slots it can cover with a full charge (level 2), or simply today's highest price (level 1).
-- **Hot water tank and house:** you will need the heat anyway. Heating it earlier only shifts *when* you buy the energy. So the question is simply: is now cheaper than when the device would otherwise run? That is why these blueprints use the cheapest and most expensive *blocks* of the day.
-- **EV:** you need the kWh before your next trip. Charge on surplus, otherwise in the cheapest hours before you leave.
+For the battery, it is the average of the most expensive slots that a full battery can cover (level 2), or just today's highest price (level 1).
+
+The hot water tank and the house need the heat anyway. Heating earlier only changes when you buy the energy, so the question becomes whether now is cheaper than the moment the device would otherwise run. That's why those blueprints work with the cheapest and the most expensive block of the day.
+
+The EV needs its kWh before the next trip. Charge on surplus, and otherwise in the cheapest hours before you leave.
 
 ## Negative prices
 
-With a dynamic contract the market price is sometimes negative. Then:
+On a dynamic contract the market price is sometimes negative. Until 2027 the all-in price C can drop below zero as well. Then using power earns money and exporting costs money. After 2027, R goes negative as soon as the market price does, even while importing still costs a little.
 
-- until 2027: C can become negative too. Using power earns money, and exporting costs money if R = C < 0.
-- after 2027: R < 0 as soon as the market price is negative. Exporting costs money even if importing still costs a little.
-
-Use as much as you can (boost the hot water tank, charge the EV and the battery). Whatever is left can be curtailed, see the blueprint *Stop exporting when it costs money*.
+In those hours, use whatever you can: boost the hot water tank, charge the EV and the battery. If there is still power left over, the blueprint *Stop exporting when it costs money* can limit the inverter.
 
 ## Sources
 

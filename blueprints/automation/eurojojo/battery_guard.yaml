@@ -1,24 +1,24 @@
 blueprint:
-  name: "Home energy storage – battery: keep it for the house"
+  name: "Energy storage: keep the battery for the house"
   description: >
-    Lets HomeWizard's own *Smart charging* (`predictive`) run the Plug-In
-    Battery, but stops it from discharging into the big flexible loads that
-    are themselves storing energy: the EV and the heat pump. Emptying an
-    800 W battery into a car or a hot water tank only moves energy from one
-    store to another and loses ~25 % on the way.
+    Leaves HomeWizard's Smart charging (`predictive`) in control of the
+    Plug-In Battery, but stops it from discharging into the EV or the heat
+    pump. Those are storing energy themselves. Emptying an 800 W battery into
+    a car or a hot water tank just moves energy from one store to another and
+    loses about a quarter on the way.
 
 
-    While a flexible load runs the mode becomes `zero_charge_only`: solar
-    surplus may still be stored, nothing is discharged. Exception: if the rest
-    of the house uses a lot at the same time (oven, induction hob), the
-    battery may help, because its power then goes to that load.
+    While a flexible load runs, the mode becomes `zero_charge_only`: solar
+    surplus can still go in, nothing comes out. If the rest of the house uses
+    a lot at the same moment (oven, induction hob), the battery may help
+    after all, because its power then goes to that load.
 
 
-    Part of the *home energy storage* set (level 3).
-    Documentation: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/docs/level-3-home-energy-storage.md
+    Part of the home energy storage set (level 3).
+    Documentation: https://github.com/eurojojo/home-energy-storage/blob/master/docs/level-3-home-energy-storage.md
   domain: automation
   author: Joost Smits
-  source_url: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/blueprints/automation/eurojojo/battery_guard.yaml
+  source_url: https://github.com/eurojojo/home-energy-storage/blob/master/blueprints/automation/eurojojo/battery_guard.yaml
   homeassistant:
     min_version: "2024.10.0"
   input:

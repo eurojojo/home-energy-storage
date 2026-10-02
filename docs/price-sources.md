@@ -1,6 +1,6 @@
 # Price sources
 
-The level-2 and level-3 blueprints need **one sensor with a list of prices** (today, and tomorrow once known) in its attributes. The macro `hes_prices()` in [`home_energy_storage.jinja`](../custom_templates/home_energy_storage.jinja) reads these formats directly:
+The level-2 and level-3 blueprints need one sensor that carries a list of prices in its attributes: today, and tomorrow as soon as those prices are known. The macro `hes_prices()` in [`home_energy_storage.jinja`](../custom_templates/home_energy_storage.jinja) reads these formats as they are:
 
 | Source | Sensor | Attributes | Prices |
 |---|---|---|---|
@@ -8,17 +8,17 @@ The level-2 and level-3 blueprints need **one sensor with a list of prices** (to
 | [Nord Pool](https://github.com/custom-components/nordpool) (HACS) | `sensor.nordpool_kwh_nl_eur_…` | `raw_today`, `raw_tomorrow` (`start`, `value`) | as configured (VAT, additional costs) |
 | anything else | an adapter sensor, see below | `prices` with `start`/`time`/`timestamp`/`start_time` and `price`/`value`/`total` | |
 
-15-minute and hourly prices both work. The macro detects the slot length itself.
+15-minute and hourly prices both work, the macro figures out the slot length by itself.
 
-**Markup:** set the *markup* option of the blueprints to whatever your sensor does **not** include yet: energy tax, supplier surcharge and VAT on those. If your sensor already reports all-in prices (Tibber, or a price modifier in ENTSO-e/Nord Pool), use 0.
+Set the *markup* option of the blueprints to whatever your sensor leaves out: energy tax, the supplier surcharge and the VAT on those. Does your sensor already report all-in prices (Tibber does, and so do ENTSO-e and Nord Pool if you set a price modifier)? Then use 0.
 
 ## Adapter sensors
 
-The newer core integrations return prices through an *action* instead of an attribute. A trigger-based template sensor stores them in the right format. Put one of these in `configuration.yaml` or a package. Find the `config_entry` ID in Developer tools → Actions: choose the action, pick the integration, switch to YAML mode.
+Newer core integrations hand out prices through an action, not an attribute. A trigger-based template sensor can store them in a format the macro understands. Put one of the examples below in `configuration.yaml` or in a package. To find the `config_entry` ID, open Developer tools → Actions, choose the action, pick your integration and switch to YAML mode.
 
 ### Nord Pool (core integration)
 
-Prices come in €/MWh; the adapter converts them to €/kWh.
+This integration returns €/MWh. The adapter divides by 1000 to get €/kWh.
 
 ```yaml
 template:
@@ -59,11 +59,11 @@ template:
             {{ ns.out }}
 ```
 
-The Nord Pool core integration reports market prices **without VAT**. In the Netherlands use markup = (energy tax + surcharge) incl. VAT, and if you want VAT on the market price too, multiply it: `'price': (p.price / 1000 * 1.21) | round(5)`.
+Nord Pool reports market prices without VAT. In the Netherlands, set the markup to energy tax plus surcharge including VAT. If you also want VAT on the market price itself, multiply it in the adapter: `'price': (p.price / 1000 * 1.21) | round(5)`.
 
 ### Tibber
 
-Tibber prices are already all-in, so use **markup 0**.
+Tibber prices already include everything, so set the markup to 0.
 
 ```yaml
 template:
@@ -111,9 +111,9 @@ template:
           prices: "{{ ez.prices }}"
 ```
 
-EnergyZero returns market prices (optionally with VAT), without energy tax: set the markup accordingly.
+EnergyZero returns market prices, with VAT if you ask for it, but without energy tax. Set the markup to match.
 
-> These adapters follow the response formats in the Home Assistant documentation, but the author uses ENTSO-e and Nord Pool (HACS) and has not tested them. Check the response in **Developer tools → Actions** if the signals stay `ok: False`, and please report it in an issue.
+> I wrote these adapters from the response formats in the Home Assistant documentation. I use ENTSO-e and Nord Pool (HACS) myself, so I haven't tested them. If the signals stay at `ok: False`, look at the actual response in Developer tools → Actions, and please open an issue so I can fix the example.
 
 ## Check
 
@@ -123,4 +123,4 @@ EnergyZero returns market prices (optionally with VAT), without energy tax: set 
 {{ hes_signals('sensor.electricity_prices', 0.145, '2027-01-01') | from_json }}
 ```
 
-You should see 24–48 (hourly) or 96–192 (15-minute) prices, depending on whether tomorrow is already known.
+Expect 24 to 48 prices for hourly data, or 96 to 192 for 15-minute data, depending on whether tomorrow's prices are out yet.

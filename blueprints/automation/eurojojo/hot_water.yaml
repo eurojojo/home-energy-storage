@@ -1,32 +1,29 @@
 blueprint:
-  name: "Home energy storage – hot water tank as a heat battery"
+  name: "Energy storage: hot water tank as a heat battery"
   description: >
-    Uses the hot water tank of a heat pump (or an electric boiler) as storage by
-    changing its target temperature:
-
-    - **Boost** (e.g. 65 °C) on solar surplus after net metering ends, or when
-      power is very cheap (negative price, or among the cheapest slots of the day
-      and well below the median).
-
-    - **Comfort** (e.g. 55 °C) in the cheapest block of the day.
-
-    - **Eco** (e.g. 45 °C) in the most expensive block of the day: the tank may
-      cool down a bit, it is reheated later at a lower price.
-
-    - **Normal** (e.g. 50 °C) otherwise.
+    Uses the hot water tank of a heat pump, or an electric boiler, as storage
+    by changing its target temperature.
 
 
-    Keep the anti-legionella program of the device itself switched on, or see
-    the docs before you replace it.
+    It boosts (65 °C, say) on solar surplus once net metering has ended, or
+    when power is very cheap: a negative price, or one of the cheapest slots
+    of the day and well below the median. In the cheapest block of the day it
+    goes to a comfort temperature (55 °C). In the most expensive block the
+    tank may cool down a bit (eco, 45 °C) and gets reheated later at a lower
+    price. The rest of the time it stays at the normal temperature (50 °C).
 
 
-    **Requires** `custom_templates/home_energy_storage.jinja` and, for solar
-    boosts, a timer helper (the package creates `timer.hes_hot_water_boost`).
-    Part of the *home energy storage* set (level 3).
-    Documentation: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/docs/level-3-home-energy-storage.md
+    Keep your device's own anti-legionella program on, or read the
+    documentation before you replace it.
+
+
+    Needs `custom_templates/home_energy_storage.jinja` and, for solar boosts,
+    a timer helper (the package creates `timer.hes_hot_water_boost`). Part of
+    the home energy storage set (level 3).
+    Documentation: https://github.com/eurojojo/home-energy-storage/blob/master/docs/level-3-home-energy-storage.md
   domain: automation
   author: Joost Smits
-  source_url: https://github.com/eurojojo/homewizard-dynamic-battery/blob/master/blueprints/automation/eurojojo/hot_water.yaml
+  source_url: https://github.com/eurojojo/home-energy-storage/blob/master/blueprints/automation/eurojojo/hot_water.yaml
   homeassistant:
     min_version: "2024.10.0"
   input:

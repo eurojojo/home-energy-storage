@@ -1,5 +1,5 @@
-# Home Energy Storage – helpers and a signals sensor
-# https://github.com/eurojojo/homewizard-dynamic-battery
+# Home Energy Storage: helpers and a signals sensor
+# https://github.com/eurojojo/home-energy-storage
 #
 # Install (see docs/installation.md):
 #   1. configuration.yaml:
